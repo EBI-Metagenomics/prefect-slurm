@@ -1,0 +1,31 @@
+[project]
+name = "prefect-slurm"
+version = "0.1.0"
+description = "Prefect worker for running flows on a Slurm HPC cluster"
+authors = [
+    {name = "Sandy Rogers",email = "sandyr@ebi.ac.uk"}
+]
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "prefect (>=3.4.9,<4.0.0)",
+    "httpx (>=0.24.0,<1.0.0)",
+    "pydantic (>=2.11.7,<3.0.0)"
+]
+packages = [{include = "prefect_slurm", from = "src"}]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.1"
+pytest-asyncio = "^0.23.5"
+pytest-httpx = "^0.35.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
+[project.scripts]
+prefect-slurm = "prefect_slurm.cli:run"
