@@ -11,7 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 import anyio
 from prefect.client.schemas import FlowRun
@@ -20,9 +20,10 @@ from prefect.workers.base import BaseWorker
 from prefect_slurm import SlurmWorkerConfiguration
 from prefect_slurm.config import SlurmWorkerTemplateVariables
 from prefect_slurm.result import SlurmWorkerResult
+from prefect_slurm.slurm_api import SlurmJobSubmitRequest
 
 
-class SlurmWorker(BaseWorker):
+class SlurmWorker(BaseWorker[SlurmWorkerConfiguration, SlurmWorkerTemplateVariables, SlurmWorkerResult]):
     """A Prefect worker that submits flow runs as Slurm jobs.
     
     This worker runs on a Slurm submitter node and submits each flow run as a new
@@ -41,19 +42,57 @@ class SlurmWorker(BaseWorker):
         configuration: SlurmWorkerConfiguration,
         task_status: Optional[anyio.abc.TaskStatus] = None,
     ) -> SlurmWorkerResult:
-        # Create the execution environment and start execution
-        job = await self._create_and_start_job(configuration)
+        client = configuration.slurm_credentials.get_client()
+        logger = self.get_flow_run_logger(flow_run)
+        logger.info(f"Submitting flow run {flow_run.id} to Slurm...")
+
+        job = await client.submit_job(
+            SlurmJobSubmitRequest(
+                job=configuration.model_dump(
+                    include={
+                        "name", "script", "memory_per_node", "time_limit", "working_directory"
+                    }
+                )
+            )
+        )
+        logger.info(f"Submitted flow run {flow_run.id} to Slurm job {job.id}")
 
         if task_status:
             # Use a unique ID to mark the run as started. This ID is later used to tear down infrastructure
             # if the flow run is cancelled.
             task_status.started(job.id)
 
-            # Monitor the execution
-        job_status = await self._watch_job(job, configuration)
+        # do we wait here?
 
-        exit_code = job_status.exit_code if job_status else -1  # Get result of execution for reporting
         return SlurmWorkerResult(
-            status_code=exit_code,
+            status_code=0,
             identifier=job.id,
         )
+
+
+
+    async def _initiate_run(
+        self,
+        flow_run: FlowRun,
+        configuration: SlurmWorkerConfiguration,
+    ) -> None:
+        # Submit job and return as quickly as possible
+
+        client = configuration.slurm_credentials.get_client()
+        logger = self.get_flow_run_logger(flow_run)
+        logger.info(f"Submitting flow run {flow_run.id} to Slurm...")
+
+        job = await client.submit_job(
+            SlurmJobSubmitRequest(
+                job=configuration.model_dump(
+                    include={
+                        "name", "script", "memory_per_node", "time_limit", "working_directory"
+                    }
+                )
+            )
+        )
+        logger.info(f"Submitted flow run {flow_run.id} to Slurm job {job.id}")
+
+    # async def teardown(self, *exc_info: Any) -> None:
+    # consider overriding this to e.g. clean workdirs if successful, or remove log file?
+

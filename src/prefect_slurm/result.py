@@ -15,5 +15,5 @@ from prefect.workers.base import BaseWorkerResult
 
 
 class SlurmWorkerResult(BaseWorkerResult):
-    # TODO slurm job ID and log reporting etc
+    # TODO: include any slurm jobacct info here maybe?
     ...

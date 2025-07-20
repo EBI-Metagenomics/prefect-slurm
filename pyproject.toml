@@ -29,3 +29,6 @@ python_files = "test_*.py"
 
 [project.scripts]
 prefect-slurm = "prefect_slurm.cli:run"
+
+[project.entry-points."prefect.collections"]
+prefect_slurm = "prefect_slurm.worker"

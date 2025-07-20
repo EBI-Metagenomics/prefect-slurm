@@ -13,6 +13,7 @@
 
 from typing import Optional, Union
 
+from prefect.client.schemas import FlowRun
 from prefect.workers.base import BaseJobConfiguration, BaseVariables
 from pydantic import Field
 
@@ -23,6 +24,7 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
     """
     Configuration for a Slurm worker.
     """
+    script: Optional[str] = Field(None)
     partition: str = Field(default="compute", description="Slurm partition to use")
     qos: Optional[str] = Field(default=None, description="Slurm QOS to use")
     memory_per_node: Optional[Union[str, int]] = Field(
@@ -38,6 +40,31 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
     slurm_credentials: SlurmCredentials = Field(default=None, description="Credentials for the SLURM Rest API")
     # TODO: Defined here so that they can be managed via prefect UI... could also be some env vars exposed to the worker process...
     # consider what is best.
+
+
+    def prepare_for_flow_run(
+        self,
+        flow_run: FlowRun,
+        deployment: "DeploymentResponse | None" = None,
+        flow: "APIFlow | None" = None,
+        work_pool: "WorkPool | None" = None,
+        worker_name: str | None = None,
+    ):
+        """
+        Prepares the job configuration for a flow run.
+
+        Ensures that the slurm job script is set to the flow run command.
+
+        Args:
+            flow_run: The flow run to prepare the job configuration for
+            deployment: The deployment associated with the flow run used for
+                preparation.
+            flow: The flow associated with the flow run used for preparation.
+            work_pool: The work pool associated with the flow run used for preparation.
+            worker_name: The name of the worker used for preparation.
+        """
+        super().prepare_for_flow_run(flow_run, deployment, flow, work_pool, worker_name)
+        self.script = self._base_flow_run_command()
 
 
 class SlurmWorkerTemplateVariables(BaseVariables):

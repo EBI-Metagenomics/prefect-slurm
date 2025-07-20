@@ -107,7 +107,7 @@ class SlurmApiClient:
             await self._client.aclose()
             self._client = None
 
-    async def submit_job(self, job_spec: Union[Dict[str, Any], SlurmJobSubmitRequest]) -> str:
+    async def submit_job(self, job_spec: Union[Dict[str, Any], SlurmJobSubmitRequest]) -> SlurmJobResponse:
         """Submit a job to the Slurm cluster.
 
         Args:
@@ -130,8 +130,8 @@ class SlurmApiClient:
         # Parse the response using the Pydantic model
         data = response.json()
         job_response = SlurmJobResponse(**data)
+        return job_response
 
-        return job_response.job_id
 
     async def get_job_status(self, job_id: str) -> SlurmJobStatusResponse:
         """Get the status of a job.
