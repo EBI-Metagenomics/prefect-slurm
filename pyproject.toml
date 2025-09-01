@@ -3,32 +3,60 @@ name = "prefect-slurm"
 version = "0.1.0"
 description = "Prefect worker for running flows on a Slurm HPC cluster"
 authors = [
+    {name = "Aleksandar Rajkovic",email = "aleksandar@ebi.ac.uk"},
     {name = "Sandy Rogers",email = "sandyr@ebi.ac.uk"}
 ]
+license = {text = "Apache 2.0"}
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "prefect (>=3.4.9,<4.0.0)",
-    "httpx (>=0.24.0,<1.0.0)",
-    "pydantic (>=2.11.7,<3.0.0)"
+    "prefect (>=3.4.13,<4.0.0)",
+    "ebi-slurpy (>=0.1.1,<0.2.0)",
+    "aiofiles (>=23.0.0)",
+    "click (>=8.0.0)"
 ]
-packages = [{include = "prefect_slurm", from = "src"}]
 
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+[project.entry-points."prefect.collections"]
+prefect_slurm = "prefect_slurm.worker"
+
+[project.scripts]
+prefect-slurm = "prefect_slurm.cli:cli"
+
+[tool.poetry]
+
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.1"
-pytest-asyncio = "^0.23.5"
-pytest-httpx = "^0.35.0"
+pytest-asyncio = "^0.23.0"
+watchdog = "^6.0.0"
+testcontainers = "^4.0.0"
+httpx = "^0.28.1"
+pre-commit = "^4.3.0"
+pytest-cov = "^6.2.1"
+
+
+[[tool.poetry.source]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+priority = "explicit"
+
+
+[tool.poetry.dependencies]
+ebi-slurpy = {source = "testpypi"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+python_functions = "test_*"
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "unit: marks tests as unit tests (run with '-m unit')",
+    "cli: marks tests as tests for cli (run with '-m cli')",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')"
+]
 
-[project.scripts]
-prefect-slurm = "prefect_slurm.cli:run"
-
-[project.entry-points."prefect.collections"]
-prefect_slurm = "prefect_slurm.worker"
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

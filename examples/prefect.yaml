@@ -1,0 +1,70 @@
+# Welcome to your prefect.yaml file! You can use this file for storing and managing
+# configuration for deploying your flows. We recommend committing this file to source
+# control along with your flow code.
+
+# Generic metadata about this project
+name: prefect-slurm
+prefect-version: 3.4.13
+
+# build section allows you to manage and build docker images
+build: null
+
+# push section allows you to manage if and how this project is uploaded to remote locations
+push: null
+
+# pull section allows you to provide instructions for cloning this project in remote locations
+pull:
+- prefect.deployments.steps.set_working_directory:
+    directory: /home/slurm/examples
+
+# the deployments section allows you to provide configuration for deploying flows
+deployments:
+- name: slurm-test-fibonacci
+  version: "1.0"
+  tags: ["slurm", "test", "example"]
+  concurrency_limit: null
+  description: Test flow to validate Slurm worker execution on HPC cluster
+  entrypoint: fibonacci.py:fibonacci_flow
+  parameters: {}
+  work_pool:
+    name: slurm-pool
+    work_queue_name: null
+    job_variables:
+      working_dir: /home/slurm
+      cpu: 1
+      memory: 1
+      time_limit: 1
+  schedules: []
+- name: slurm-long-deployment
+  version: "1.0"
+  tags: ["slurm", "test", "example"]
+  concurrency_limit: null
+  description: Test flow to check heartbeat
+  entrypoint: long_running.py:long_running_flow
+  parameters: {}
+  work_pool:
+    name: slurm-pool
+    work_queue_name: null
+    job_variables:
+      working_dir: /home/slurm
+      cpu: 1
+      memory: 1
+      time_limit: 12
+      source_files: ["/home/slurm/environments/prefect/bin/activate"]
+  schedules: []
+- name: slurm-hello-world-deployment
+  version: "1.0"
+  tags: ["slurm", "test", "example"]
+  concurrency_limit: null
+  description: Test flow to check heartbeat
+  entrypoint: hello_world.py:hello_world
+  parameters: {}
+  work_pool:
+    name: slurm-pool
+    work_queue_name: null
+    job_variables:
+      working_dir: /home/slurm
+      cpu: 1
+      memory: 1
+      time_limit: 12
+  schedules: []
