@@ -3,6 +3,7 @@ Unit tests for SlurmWorkerConfiguration and SlurmWorkerTemplateVariables.
 """
 
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -89,6 +90,43 @@ class TestSlurmWorkerConfiguration:
         )
 
         assert expected == venv_segment
+
+    def test_script_setup_segment_no_files(self, sample_slurm_configuration):
+        """Test source segment generation with no source files"""
+        sample_slurm_configuration.source_files = []
+
+        with (
+            patch.object(
+                sample_slurm_configuration, "_script_source_segment"
+            ) as mock_source_segment,
+            patch.object(
+                sample_slurm_configuration, "_script_python_venv_segment"
+            ) as mock_python_venv_segment,
+        ):
+            sample_slurm_configuration._script_setup_segment()
+
+        mock_source_segment.assert_not_called()
+        mock_python_venv_segment.assert_called()
+
+    def test_script_setup_segment_with_files(self, sample_slurm_configuration):
+        """Test source segment generation with source files"""
+        sample_slurm_configuration.source_files = [
+            Path("/etc/profile"),
+            Path("/home/user/.bashrc"),
+        ]
+
+        with (
+            patch.object(
+                sample_slurm_configuration, "_script_source_segment"
+            ) as mock_source_segment,
+            patch.object(
+                sample_slurm_configuration, "_script_python_venv_segment"
+            ) as mock_python_venv_segment,
+        ):
+            sample_slurm_configuration._script_setup_segment()
+
+        mock_python_venv_segment.assert_not_called()
+        mock_source_segment.assert_called()
 
     def test_slurm_specific_environment(self, sample_slurm_configuration):
         """Test Slurm-specific environment variable generation."""
