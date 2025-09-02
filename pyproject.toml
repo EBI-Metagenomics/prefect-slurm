@@ -11,9 +11,9 @@ readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "prefect (>=3.4.13,<4.0.0)",
-    "ebi-slurpy (>=0.1.1,<0.2.0)",
     "aiofiles (>=23.0.0)",
-    "click (>=8.0.0)"
+    "click (>=8.0.0)",
+    "ebi-slurpy (>=0.1.1,<0.2.0)"
 ]
 
 [project.entry-points."prefect.collections"]
@@ -34,15 +34,6 @@ httpx = "^0.28.1"
 pre-commit = "^4.3.0"
 pytest-cov = "^6.2.1"
 
-
-[[tool.poetry.source]]
-name = "testpypi"
-url = "https://test.pypi.org/simple/"
-priority = "explicit"
-
-
-[tool.poetry.dependencies]
-ebi-slurpy = {source = "testpypi"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

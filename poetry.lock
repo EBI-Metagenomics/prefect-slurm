@@ -840,7 +840,7 @@ name = "ebi-slurpy"
 version = "0.1.1"
 description = "Python client for the Slurm REST API"
 optional = false
-python-versions = ">=3.11,<4.0"
+python-versions = "<4.0,>=3.11"
 groups = ["main"]
 files = [
     {file = "ebi_slurpy-0.1.1-py3-none-any.whl", hash = "sha256:65e1904abcd8ab8e02bbae49027ff53478ef8ab94f97022cee4ca790ec7b9886"},
@@ -853,11 +853,6 @@ aiohttp-retry = ">=2.8.3"
 pydantic = ">=2.9.2,<3.0.0"
 python-dateutil = ">=2.8.2"
 typing-extensions = ">=4.7.1"
-
-[package.source]
-type = "legacy"
-url = "https://test.pypi.org/simple"
-reference = "testpypi"
 
 [[package]]
 name = "exceptiongroup"
@@ -3947,4 +3942,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "28f1f3940a863881109d6bcde93d6932f6d9663cfb923c71fc43ccf892b4e65a"
+content-hash = "ca530864b3cae38407ac9df447b54b6084102ad4027317e1403f7698cca2b51e"
