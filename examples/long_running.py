@@ -14,7 +14,7 @@ def long_running_flow():
 
     print("Starting Slurm Very Long Flow")
 
-    for _ in range(int(86400 / 5)):
+    for _ in range(int(86400 / 5)):  # every 5 seconds for 24 hours
         print(datetime.now())
         time.sleep(5)
 
