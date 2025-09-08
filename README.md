@@ -29,7 +29,7 @@ pip install prefect-slurm
 
 1. **Create a work pool** using the Slurm worker type:
    ```bash
-   prefect work-pool create my-slurm-pool --type slurm
+   prefect work-pool create slurm-pool --type slurm
    ```
 
 2. **Configure authentication** - Set up your Slurm credentials:
@@ -49,35 +49,8 @@ pip install prefect-slurm
 
 4. **Start the worker**:
    ```bash
-   prefect worker start --pool my-slurm-pool --type slurm
+   prefect worker start --pool slurm-pool --type slurm
    ```
-
-### Example Flow
-
-```python
-import time
-from prefect import flow, task
-
-@task
-def compute_task(n: int):
-    """A simple compute task."""
-    time.sleep(n)
-    return n * 2
-
-@flow
-def my_hpc_flow(iterations: int = 10):
-    """A flow that will run on your Slurm cluster."""
-    results = []
-    for i in range(iterations):
-        result = compute_task(i)
-        results.append(result)
-    return results
-
-if __name__ == "__main__":
-    my_hpc_flow()
-```
-
-Deploy this flow (with `work_pool_name: my-slurm-pool`), and runs of it will execute as a Slurm job on your HPC cluster!
 
 ## Configuration
 
@@ -145,6 +118,39 @@ echo "jwt_token_here" | prefect-slurm token ~/my_token.jwt
 prefect-slurm token --help
 ```
 The default location for the token is `~/.prefect_slurm.jwt` (can be overridden by setting `PREFECT_SLURM_TOKEN_FILE`) and default permissions are 600 (read/write allowed for user only)
+
+## Running the Examples
+
+You can test the examples in the [examples/](examples/) directory using the local Docker Compose Slurm cluster:
+
+1. **Start the local cluster**:
+   ```bash
+   cd slurm_environment/
+   docker-compose up -d
+   ```
+
+2. **Wait for services to be healthy** (check with `docker-compose ps`)
+
+3. **Deploy and run example flows** (from the **prefect_server** container):
+   ```bash
+   # Enter the Prefect server container
+   docker-compose exec prefect_server bash
+   
+   # Navigate to examples and deploy the hello world example interactively
+   cd /opt/data/examples
+   prefect deploy
+   
+   # Run the deployment
+   prefect deployment run slurm-hello-world/slurm-hello-world-deployment
+   ```
+
+4. **Monitor execution**:
+   - Prefect UI: http://localhost:4200
+   - Check Slurm jobs (from **slurm_node** container): `docker-compose exec slurm_node squeue`
+   - View worker logs: `docker-compose logs slurm_submitter`
+
+The Docker environment provides a complete Slurm cluster with the worker automatically configured and example flows ready to deploy.
+
 ## Architecture
 
 The Slurm worker integrates with Prefect's execution model:
