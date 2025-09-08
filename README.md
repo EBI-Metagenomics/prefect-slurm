@@ -135,7 +135,7 @@ The worker automatically creates a temporary Python virtual environment with the
 The package includes a command-line utility for token management:
 
 ```bash
-# Store token from scontrol output
+# Store token from scontrol output at default location
 scontrol token username=$USER lifespan=3600 | prefect-slurm token
 
 # Store token to custom location
@@ -144,7 +144,7 @@ echo "jwt_token_here" | prefect-slurm token ~/my_token.jwt
 # Get help
 prefect-slurm token --help
 ```
-
+The default location for the token is `~/.prefect_slurm.jwt` (can be overridden by setting `PREFECT_SLURM_TOKEN_FILE`) and default permissions are 600 (read/write allowed for user only)
 ## Architecture
 
 The Slurm worker integrates with Prefect's execution model:
