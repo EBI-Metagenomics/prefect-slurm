@@ -77,7 +77,7 @@ if __name__ == "__main__":
     my_hpc_flow()
 ```
 
-Deploy and run this flow, and it will execute as a Slurm job on your HPC cluster!
+Deploy this flow (with `work_pool_name: my-slurm-pool`), and runs of it will execute as a Slurm job on your HPC cluster!
 
 ## Configuration
 
