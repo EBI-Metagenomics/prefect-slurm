@@ -4,6 +4,7 @@ Unit tests for CLI utilities.
 
 import os
 from pathlib import Path
+import stat
 from unittest.mock import patch
 
 import pytest
@@ -103,10 +104,11 @@ class TestExtractJwtToken:
 class TestWriteTokenFile:
     """Test cases for write_token_file function."""
 
-    def test_write_token_file_success(self, tmp_path):
+    def test_write_existing_token_file_success(self, tmp_path):
         """Test successful token file writing."""
         token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
         file_path = tmp_path / "token.jwt"
+        file_path.touch(0o600)
 
         with patch("fcntl.flock"), patch("os.chmod") as mock_chmod:
             write_token_file(token, file_path)
@@ -117,6 +119,21 @@ class TestWriteTokenFile:
 
         # Verify permissions were set
         mock_chmod.assert_called_once_with(file_path, 0o600)
+
+    def test_write_non_existing_token_file_success(self, tmp_path):
+        """Test successful token file writing."""
+        token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
+        file_path = tmp_path / "new_token.jwt"
+        with patch("fcntl.flock"):
+            write_token_file(token, file_path)
+
+        # Verify file was written
+        assert file_path.exists()
+        assert file_path.read_text() == token
+
+        file_stat = os.stat(file_path)
+        file_mode = stat.S_IMODE(file_stat.st_mode)
+        assert file_mode == 0o600
 
     def test_write_token_file_creates_parent_directories(self, tmp_path):
         """Test that parent directories are created if they don't exist."""
@@ -154,6 +171,20 @@ class TestWriteTokenFile:
 
         with patch("builtins.open", side_effect=OSError("Permission denied")):
             with pytest.raises(OSError, match="Failed to write token file"):
+                write_token_file(token, file_path)
+
+    def test_write_token_file_permission_error_on_touch(self, tmp_path):
+        """Test PermissionError is raised when file touch fails due to permissions."""
+        token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
+        file_path = tmp_path / "protected" / "token.jwt"
+
+        # Mock touch to raise PermissionError to simulate inability to create file
+        with patch.object(
+            Path, "touch", side_effect=PermissionError("Operation not permitted")
+        ):
+            with pytest.raises(
+                PermissionError, match=f"Permission denied accessing {file_path}"
+            ):
                 write_token_file(token, file_path)
 
 

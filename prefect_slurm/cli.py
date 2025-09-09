@@ -61,8 +61,20 @@ def write_token_file(token: str, file_path: Path) -> None:
     if len(parts) != 3 or not all(part for part in parts):
         raise ValueError(f"Invalid JWT format: {token}")
 
-    # Ensure parent directory exists
-    file_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if not file_path.exists():
+            # Ensure parent directory exists
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.touch(0o600)
+        else:
+            # Set 600 permissions (owner read/write only)
+            os.chmod(file_path, 0o600)
+    except PermissionError as e:
+        raise PermissionError(f"Permission denied accessing {file_path}: {e}") from e
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"File not found: {file_path}") from e
+    except OSError as e:
+        raise OSError(f"File system error with {file_path}: {e}") from e
 
     # Write token with exclusive lock
     try:
@@ -72,12 +84,8 @@ def write_token_file(token: str, file_path: Path) -> None:
             f.write(token)
             f.flush()
             os.fsync(f.fileno())
-
-        # Set 600 permissions (owner read/write only)
-        os.chmod(file_path, 0o600)
-
     except OSError as e:
-        raise OSError(f"Failed to write token file {file_path}: {e}")
+        raise OSError(f"Failed to write token file {file_path}: {e}") from e
 
 
 @click.group()
