@@ -50,7 +50,7 @@ deployments:
       cpu: 1
       memory: 1
       time_limit: 12
-      source_files: ["/home/slurm/environments/prefect/bin/activate"]
+      source_files: ["environments/prefect/bin/activate"]
   schedules: []
 - name: slurm-hello-world-deployment
   version: "1.0"
