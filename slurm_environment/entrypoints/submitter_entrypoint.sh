@@ -5,6 +5,7 @@ set -e
 scontrol token username=slurm lifespan=4000 | prefect-slurm token
 
 # Start token update cronjob
+# Runs every 60mins, token lifespan is 66mins
 echo "0 * * * * /bin/bash -c 'source /home/slurm/app/.venv/bin/activate && scontrol token username=slurm lifespan=4000 | prefect-slurm token' >> /var/log/slurm/token_refresh.log 2>&1" | crontab -u slurm -
 sudo service cron start
 
