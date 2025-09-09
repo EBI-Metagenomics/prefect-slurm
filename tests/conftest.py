@@ -80,6 +80,34 @@ def sample_template_variables():
 
 
 @pytest.fixture
+def custom_shebang_configuration():
+    """Create a SlurmWorkerConfiguration with custom shebang."""
+    return SlurmWorkerConfiguration(
+        cpu=2,
+        memory=4,
+        partition="compute",
+        shebang="#!/usr/bin/python3",
+        time_limit=1,
+        working_dir=Path("/tmp/test"),
+        source_files=[],
+    )
+
+
+@pytest.fixture
+def zsh_shebang_configuration():
+    """Create a SlurmWorkerConfiguration with zsh shebang."""
+    return SlurmWorkerConfiguration(
+        cpu=1,
+        memory=2,
+        partition="test",
+        shebang="#!/bin/zsh",
+        time_limit=1,
+        working_dir=Path("/tmp/test"),
+        source_files=[Path("/etc/profile")],
+    )
+
+
+@pytest.fixture
 def sample_slurm_jobs():
     """Create sample Slurm job states dict for testing (RUNNING jobs only for zombie detection)."""
     return {"12345": "RUNNING", "67890": "RUNNING"}

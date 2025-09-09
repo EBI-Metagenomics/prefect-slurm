@@ -35,6 +35,11 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
     cpu: int = Field(default=1, description="CPU count required for the flow")
     memory: int = Field(default=4, description="Memory in GB required for the flow")
     partition: Optional[str] = Field(default=None, description="Slurm partition to use")
+    shebang: str = Field(
+        default="#!/bin/bash",
+        pattern=r"^#!/.+$",
+        description="Indicates which shell to use when running the slurm job",
+    )
     script: str = Field(
         default="",
         description="Script to run in the SLURM job",
@@ -107,7 +112,7 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
         )
 
     def _script_shebang_segment(self):
-        return "#!/bin/bash"
+        return self.shebang.strip()
 
     def _script_setup_segment(self):
         if self.source_files:
@@ -146,6 +151,11 @@ class SlurmWorkerTemplateVariables(BaseVariables):
     cpu: int = Field(default=1, description="CPU count required for the flow")
     memory: int = Field(default=4, description="Memory in GB required for the flow")
     partition: Optional[str] = Field(default=None, description="Slurm partition to use")
+    shebang: str = Field(
+        default="#!/bin/bash",
+        pattern=r"^#!/.+$",
+        description="Indicates which shell to use when running the slurm job",
+    )
     source_files: list[Path] = Field(
         default_factory=list,
         title="Source Files",

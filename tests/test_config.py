@@ -53,8 +53,28 @@ class TestSlurmWorkerConfiguration:
             "number": 60,
         }  # default 1 hour
 
-    def test_script_shebang_segment(self, sample_slurm_configuration):
-        """Test shebang generation."""
+    def test_script_shebang_segment_default(self, sample_slurm_configuration):
+        """Test shebang generation with default value."""
+        shebang = sample_slurm_configuration._script_shebang_segment()
+        assert shebang == "#!/bin/bash"
+
+    def test_script_shebang_segment_custom(self, sample_slurm_configuration):
+        """Test shebang generation with custom values."""
+        test_cases = [
+            "#!/usr/bin/python3",
+            "#!/bin/zsh",
+            "#!/usr/bin/env python",
+            "#!/bin/sh",
+        ]
+
+        for custom_shebang in test_cases:
+            sample_slurm_configuration.shebang = custom_shebang
+            result = sample_slurm_configuration._script_shebang_segment()
+            assert result == custom_shebang
+
+    def test_script_shebang_segment_with_whitespace(self, sample_slurm_configuration):
+        """Test shebang generation strips whitespace."""
+        sample_slurm_configuration.shebang = "  #!/bin/bash  \n"
         shebang = sample_slurm_configuration._script_shebang_segment()
         assert shebang == "#!/bin/bash"
 
@@ -161,6 +181,21 @@ class TestSlurmWorkerConfiguration:
         assert "#!/bin/bash" in sample_slurm_configuration.script
         assert "python -m prefect.engine" in sample_slurm_configuration.script
 
+    def test_prepare_for_flow_run_with_custom_shebang(self, sample_slurm_configuration):
+        """Test script generation with custom shebang."""
+        flow_run = FlowRun(id=uuid4(), name="test-flow-run", flow_id=uuid4())
+        sample_slurm_configuration.command = "python -m prefect.engine"
+        sample_slurm_configuration.shebang = "#!/usr/bin/python3"
+
+        sample_slurm_configuration.prepare_for_flow_run(flow_run)
+
+        # Check that custom shebang appears in script
+        script = sample_slurm_configuration.script
+        assert script is not None
+        assert script.startswith("#!/usr/bin/python3")
+        assert "#!/bin/bash" not in script  # Default should not appear
+        assert "python -m prefect.engine" in script
+
     def test_prepare_for_flow_run_with_source_files(self, sample_slurm_configuration):
         """Test script generation with source files."""
         flow_run = FlowRun(
@@ -173,6 +208,25 @@ class TestSlurmWorkerConfiguration:
 
         script = sample_slurm_configuration.script
         assert "#!/bin/bash" in script
+        assert "source /etc/profile" in script
+        assert "python test.py" in script
+
+    def test_prepare_for_flow_run_with_source_files_and_custom_shebang(
+        self, sample_slurm_configuration
+    ):
+        """Test script generation with source files and custom shebang."""
+        flow_run = FlowRun(
+            id=uuid4(), name="test-flow-run-custom-shebang", flow_id=uuid4()
+        )
+        sample_slurm_configuration.command = "python test.py"
+        sample_slurm_configuration.source_files = [Path("/etc/profile")]
+        sample_slurm_configuration.shebang = "#!/bin/zsh"
+
+        sample_slurm_configuration.prepare_for_flow_run(flow_run)
+
+        script = sample_slurm_configuration.script
+        assert script.startswith("#!/bin/zsh")
+        assert "#!/bin/bash" not in script  # Default should not appear
         assert "source /etc/profile" in script
         assert "python test.py" in script
 
@@ -213,6 +267,45 @@ class TestSlurmWorkerConfiguration:
         assert "PATH" in sample_slurm_configuration.env
         assert sample_slurm_configuration.env["CUSTOM_VAR"] == "custom_value"
 
+    @pytest.mark.parametrize(
+        "valid_shebang",
+        [
+            "#!/bin/bash",
+            "#!/usr/bin/python3",
+            "#!/bin/zsh",
+            "#!/usr/bin/env python",
+            "#!/bin/sh",
+            "#!/usr/bin/perl",
+            "#!/usr/local/bin/fish",
+        ],
+    )
+    def test_shebang_validation_valid_patterns(self, valid_shebang):
+        """Test that valid shebang patterns are accepted."""
+        config = SlurmWorkerConfiguration(
+            shebang=valid_shebang, working_dir=Path("/tmp/test")
+        )
+        assert config.shebang == valid_shebang
+
+    @pytest.mark.parametrize(
+        "invalid_shebang",
+        [
+            "#!",  # Empty interpreter
+            "!/bin/bash",  # Missing #
+            "#!/",  # Missing interpreter
+            "# !/bin/bash",  # Space in shebang
+            "bin/bash",  # No shebang at all
+            "",  # Empty string
+        ],
+    )
+    def test_shebang_validation_invalid_patterns(self, invalid_shebang):
+        """Test that invalid shebang patterns are rejected."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            SlurmWorkerConfiguration(
+                shebang=invalid_shebang, working_dir=Path("/tmp/test")
+            )
+
 
 @pytest.mark.unit
 class TestSlurmWorkerTemplateVariables:
@@ -225,6 +318,7 @@ class TestSlurmWorkerTemplateVariables:
         assert variables.cpu == 1
         assert variables.memory == 4
         assert variables.partition is None
+        assert variables.shebang == "#!/bin/bash"
         assert variables.time_limit == 1
         assert variables.source_files == []
 
@@ -233,8 +327,44 @@ class TestSlurmWorkerTemplateVariables:
         assert sample_template_variables.cpu == 4
         assert sample_template_variables.memory == 8
         assert sample_template_variables.partition == "gpu"
+        assert sample_template_variables.shebang == "#!/bin/bash"  # Default value
         assert sample_template_variables.time_limit == 2
         assert sample_template_variables.working_dir == Path("/opt/data")
+
+    @pytest.mark.parametrize(
+        "valid_shebang",
+        [
+            "#!/bin/bash",
+            "#!/usr/bin/python3",
+            "#!/bin/zsh",
+            "#!/usr/bin/env python",
+            "#!/bin/sh",
+        ],
+    )
+    def test_template_variables_shebang_validation_valid(self, valid_shebang):
+        """Test that valid shebang patterns are accepted in template variables."""
+        variables = SlurmWorkerTemplateVariables(
+            shebang=valid_shebang, working_dir=Path("/tmp/test")
+        )
+        assert variables.shebang == valid_shebang
+
+    @pytest.mark.parametrize(
+        "invalid_shebang",
+        [
+            "#!",  # Empty interpreter
+            "!/bin/bash",  # Missing #
+            "#!/",  # Missing interpreter
+            "",  # Empty string
+        ],
+    )
+    def test_template_variables_shebang_validation_invalid(self, invalid_shebang):
+        """Test that invalid shebang patterns are rejected in template variables."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            SlurmWorkerTemplateVariables(
+                shebang=invalid_shebang, working_dir=Path("/tmp/test")
+            )
 
     @pytest.mark.parametrize("cpu", [1, 2, 4, 8, 16])
     def test_cpu_validation(self, cpu):
