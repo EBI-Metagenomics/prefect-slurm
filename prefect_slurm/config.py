@@ -83,11 +83,6 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
         """
         super().prepare_for_flow_run(flow_run, deployment, flow, work_pool, worker_name)
 
-        self.env = {
-            **self.env,
-            **self._slurm_specific_environment(),
-        }
-
         script_segments = [
             self._script_shebang_segment(),
             self._script_setup_segment(),
@@ -139,9 +134,6 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
             f'source "$VENV_DIR/bin/activate"\n'
             f'pip install "prefect=={prefect_version}"'
         )
-
-    def _slurm_specific_environment(self):
-        return {"PATH": "/bin/:/usr/bin/:/sbin/"}
 
     def _env_to_list(self):
         return [f"{key}={value}" for key, value in self.env.items()]

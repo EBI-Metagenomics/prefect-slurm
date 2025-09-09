@@ -148,13 +148,6 @@ class TestSlurmWorkerConfiguration:
         mock_python_venv_segment.assert_not_called()
         mock_source_segment.assert_called()
 
-    def test_slurm_specific_environment(self, sample_slurm_configuration):
-        """Test Slurm-specific environment variable generation."""
-        env = sample_slurm_configuration._slurm_specific_environment()
-
-        expected = {"PATH": "/bin/:/usr/bin/:/sbin/"}
-        assert env == expected
-
     def test_env_to_list_conversion(self, sample_slurm_configuration):
         """Test environment dictionary to list conversion."""
         sample_slurm_configuration.env = {
@@ -254,18 +247,22 @@ class TestSlurmWorkerConfiguration:
         assert job_spec["job"]["memory_per_node"]["number"] == memory * 1024
         assert job_spec["job"]["time_limit"]["number"] == int(time_limit * 60)
 
-    def test_env_merging_in_prepare_for_flow_run(self, sample_slurm_configuration):
-        """Test that environment variables are properly merged."""
-        flow_run = FlowRun(id=uuid4(), name="test-env-merging", flow_id=uuid4())
+    def test_env_variables_in_prepare_for_flow_run(self, sample_slurm_configuration):
+        """Test that user environment variables are preserved during flow run preparation."""
+        flow_run = FlowRun(id=uuid4(), name="test-env-preservation", flow_id=uuid4())
         sample_slurm_configuration.command = "echo 'test'"
-        sample_slurm_configuration.env = {"CUSTOM_VAR": "custom_value"}
+        sample_slurm_configuration.env = {
+            "CUSTOM_VAR": "custom_value",
+            "USER": "testuser",
+        }
 
         sample_slurm_configuration.prepare_for_flow_run(flow_run)
 
-        # Check that both custom and Slurm-specific env vars are present
+        # Check that custom environment variables are preserved
         assert "CUSTOM_VAR" in sample_slurm_configuration.env
-        assert "PATH" in sample_slurm_configuration.env
+        assert "USER" in sample_slurm_configuration.env
         assert sample_slurm_configuration.env["CUSTOM_VAR"] == "custom_value"
+        assert sample_slurm_configuration.env["USER"] == "testuser"
 
     @pytest.mark.parametrize(
         "valid_shebang",

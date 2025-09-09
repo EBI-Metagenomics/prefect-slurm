@@ -68,6 +68,7 @@ async def test_slurm_integration_happy_path(
                 job_variables={
                     "working_dir": "/tmp/workdir",
                     "memory": 1,
+                    "env": {"PATH": "/bin/:/usr/bin/:/sbin/"},
                 },
             )
 

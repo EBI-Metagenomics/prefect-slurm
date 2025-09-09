@@ -205,8 +205,10 @@ class SlurmWorker(
     ) -> BaseWorkerResult:
         logger = self.get_flow_run_logger(flow_run)
         logger.info(f"Submitting flow run {flow_run.id} to Slurm")
+        job_spec = configuration.get_slurm_job_spec()
+        logger.debug(f"Slurm job specs: {job_spec}")
 
-        response = await self._submit_slurm_job(configuration.get_slurm_job_spec())
+        response = await self._submit_slurm_job(job_spec)
 
         logger.info(f"Submitted flow run {flow_run.id} to Slurm job {response.job_id}")
 
