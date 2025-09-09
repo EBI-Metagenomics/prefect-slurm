@@ -7,8 +7,3 @@ repos:
   - id: ruff-check
     args: [ --fix ]
   - id: ruff-format
-- repo: https://github.com/pycqa/isort
-  rev: 6.0.1
-  hooks:
-    - id: isort
-      name: isort (python)
