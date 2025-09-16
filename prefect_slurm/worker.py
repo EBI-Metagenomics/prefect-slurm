@@ -11,17 +11,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
-import fcntl
 import importlib
-import os
-import re
-import stat
 import threading
 from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
-import aiofiles
 import anyio
 from anyio.abc import TaskStatus
 from prefect.client.orchestration import get_client
@@ -47,11 +41,11 @@ from prefect.utilities.services import critical_service_loop
 from prefect.workers.base import BaseWorker, BaseWorkerResult
 
 from prefect_slurm.config import SlurmWorkerConfiguration, SlurmWorkerTemplateVariables
+from prefect_slurm.settings import WorkerSettings
 
 if TYPE_CHECKING:
-    from prefect.client.schemas import FlowRun
     import slurpy.v0042.asyncio as slurpy
-JWT_PATTERN = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+    from prefect.client.schemas import FlowRun
 
 
 class SlurmWorker(
@@ -84,6 +78,8 @@ class SlurmWorker(
         self._ApiException = rest_module.ApiException
         self._JobInfo = slurpy_module.JobInfo
 
+        self._settings = WorkerSettings()
+
     async def start(
         self,
         run_once: bool = False,
@@ -102,10 +98,9 @@ class SlurmWorker(
         can be used to determine if the worker is still polling for flow runs and restart
         the worker if necessary.
 
-        Args:
-            run_once: If set, the worker will only run each loop once then return.
-            with_healthcheck: If set, the worker will start a healthcheck server.
-            printer: A `print`-like function where logs will be reported.
+        :param run_once: If set, the worker will only run each loop once then return.
+        :param with_healthcheck: If set, the worker will start a healthcheck server.
+        :param printer: A `print`-like function where logs will be reported.
         """
         healthcheck_server = None
         healthcheck_thread = None
@@ -185,7 +180,7 @@ class SlurmWorker(
         if not PREFECT_TEST_MODE and not PREFECT_API_URL.value():
             raise ValueError("`PREFECT_API_URL` must be set to start a Worker.")
 
-        await self._check_slurm_credentials()
+        await self._settings.validate_credentials()
         await self._detect_slurm_api_version()
 
         self._client = get_client()
@@ -226,26 +221,17 @@ class SlurmWorker(
         Always reads fresh token from file for token rotation scenarios.
         Uses async file operations with locking to detect concurrent writes.
 
-        Returns:
-            Configuration: Configured Slurm API client
+        :returns: Configured Slurm API client
+        :rtype: Configuration
         """
         config_class_to_use = configuration_class or self._Configuration
 
-        configuration = config_class_to_use(
-            host=os.environ.get("PREFECT_SLURM_API_URL", "http://localhost:6820")
-        )
+        configuration = config_class_to_use(host=str(self._settings.api_url))
 
-        configuration.api_key["user"] = os.environ.get("PREFECT_SLURM_USER_NAME")
-
-        # Try environment variable first
-        token = os.environ.get("PREFECT_SLURM_USER_TOKEN")
-        if token:
-            configuration.api_key["token"] = token.strip()
-            return configuration
-
-        # Read fresh token from file using async locking
-        fresh_token = await self._read_token_file_with_lock()
-        configuration.api_key["token"] = fresh_token
+        configuration.api_key["user"] = self._settings.user_name
+        configuration.api_key["token"] = (
+            await self._settings.get_token()
+        ).get_secret_value()
 
         return configuration
 
@@ -298,6 +284,9 @@ class SlurmWorker(
         return flow_runs
 
     async def _get_slurm_job_states(self, ids: List[str]) -> Dict[str, str | None]:
+        if not ids:
+            return dict()
+
         slurm_configuration = await self._get_slurm_configuration()
 
         async with self._ApiClient(slurm_configuration) as client:
@@ -348,137 +337,16 @@ class SlurmWorker(
 
         return zombie_pairs
 
-    async def _check_slurm_credentials(self):
-        """Check Slurm credentials and configuration.
-
-        Validates that required environment variables are set and that
-        either a token environment variable or properly secured token file exists.
-
-        Raises:
-            ValueError: If required credentials are missing or improperly configured.
-        """
-        # Check required environment variables
-        if not os.environ.get("PREFECT_SLURM_USER_NAME"):
-            raise ValueError("PREFECT_SLURM_USER_NAME environment variable must be set")
-
-        if not os.environ.get("PREFECT_SLURM_API_URL"):
-            raise ValueError("PREFECT_SLURM_API_URL environment variable must be set")
-
-        # Check for token (environment variable first, then file)
-        if os.environ.get("PREFECT_SLURM_USER_TOKEN"):
-            return  # Token found in environment variable
-
-        try:
-            await self._read_token_file_with_lock()
-        except Exception:
-            token_file = os.environ.get(
-                "PREFECT_SLURM_TOKEN_FILE", "~/.prefect_slurm.jwt"
-            )
-            token_file = os.path.expanduser(token_file)
-
-            raise ValueError(
-                f"No authentication found. Either set PREFECT_SLURM_USER_TOKEN "
-                f"environment variable or create token file: {token_file}"
-            )
-
-    async def _read_token_file_with_lock(self) -> str:
-        """Read token from file with async locking and permission validation.
-
-        Always validates file permissions (600) and reads fresh content.
-        Uses async file operations with file locking, waiting for any concurrent writes to complete.
-        Includes configurable timeout to prevent indefinite waiting.
-
-        Args:
-            None
-
-        Returns:
-            str: Token content (stripped)
-
-        Raises:
-            ValueError: If file permissions are incorrect, file is empty, or access fails
-            FileNotFoundError: If token file doesn't exist
-            PermissionError: If no permission to read file
-            OSError: If lock timeout occurs or other OS errors during file operations
-        """
-        token_file_path = os.environ.get(
-            "PREFECT_SLURM_TOKEN_FILE", "~/.prefect_slurm.jwt"
-        )
-        expanded_path = os.path.expanduser(token_file_path)
-
-        timeout_str = os.environ.get("PREFECT_SLURM_LOCK_TIMEOUT", "60")
-
-        try:
-            lock_timeout = float(timeout_str)
-            if lock_timeout <= 0:
-                self._logger.warning(
-                    "Invalid PREFECT_SLURM_LOCK_TIMEOUT value (must be positive), using default 60s"
-                )
-                lock_timeout = 60.0
-        except ValueError:
-            self._logger.warning(
-                f"Invalid PREFECT_SLURM_LOCK_TIMEOUT value '{timeout_str}', using default 60s"
-            )
-            lock_timeout = 60.0
-
-        try:
-            file_stat = os.stat(expanded_path)
-            file_mode = stat.S_IMODE(file_stat.st_mode)
-
-            if file_mode != 0o600:
-                raise ValueError(
-                    f"Token file {expanded_path} must have 600 permissions "
-                    f"(owner read/write only). Current permissions: {oct(file_mode)}"
-                )
-        except FileNotFoundError:
-            raise FileNotFoundError(f"Token file {expanded_path} not found")
-
-        try:
-            async with aiofiles.open(expanded_path, "r", encoding="utf-8") as f:
-                fd = f.fileno()
-
-                await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(
-                        None, fcntl.flock, fd, fcntl.LOCK_SH
-                    ),
-                    timeout=lock_timeout,
-                )
-
-                content = await f.read()
-
-            content = content.strip()
-
-            if not content:
-                raise ValueError(f"Token file {expanded_path} is empty")
-
-            if not bool(JWT_PATTERN.match(content)):
-                raise ValueError(
-                    f"Token file {expanded_path} does not contain a valid JWT token"
-                )
-
-            self._logger.debug(f"Read fresh token from {expanded_path}")
-
-            return content
-
-        except asyncio.TimeoutError:
-            raise OSError(
-                f"Timeout after {lock_timeout}s waiting for file lock on {expanded_path}. "
-                f"Another process may be writing to the file. "
-                f"Adjust PREFECT_SLURM_LOCK_TIMEOUT environment variable if needed."
-            )
-        except (OSError, IOError) as e:
-            raise OSError(f"Error reading token file {expanded_path}: {e}") from e
-
     async def _detect_slurm_api_version(self) -> str:
         """Detect available Slurm API version by testing /ping endpoint.
 
         Tests API versions from v0.0.42 down to v0.0.40 and returns the first
         working version. Also stores the required classes for the detected version.
 
-        Returns:
-            str: Detected API version (e.g., "v0042")
+        :returns: Detected API version (e.g., "v0042")
+        :rtype: str
 
-        Raises:
-            ValueError: If no compatible API version is found
+        :raises ValueError: If no compatible API version is found
         """
         versions_to_test = [
             ("v0042", "v0.0.42"),
@@ -539,7 +407,7 @@ class SlurmWorker(
 
         raise ValueError(
             f"No compatible Slurm API version found. Tested versions: {', '.join((v for _, v in versions_to_test))}. "
-            f"Ensure Slurm REST API is running and accessible at {os.environ.get('PREFECT_SLURM_API_URL', 'http://localhost:6820')}"
+            f"Ensure Slurm REST API is running and accessible at {self._settings.api_url}"
         )
 
     async def _submit_slurm_job(self, job_spec: Dict[str, Any]):

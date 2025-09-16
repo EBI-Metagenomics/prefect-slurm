@@ -21,13 +21,12 @@ async def wait_for_health_check(
     """
     Wait for a health check URL to return a successful response.
 
-    Args:
-        url: Health check URL to test
-        timeout: Maximum time to wait in seconds
-        interval: Time between checks in seconds
+    :param url: Health check URL to test
+    :param timeout: Maximum time to wait in seconds
+    :param interval: Time between checks in seconds
 
-    Returns:
-        bool: True if health check succeeded, False if timed out
+    :returns: True if health check succeeded, False if timed out
+    :rtype: bool
     """
     start_time = time.time()
 
@@ -49,12 +48,11 @@ async def wait_for_prefect_api(prefect_url: str, timeout: int = 120) -> bool:
     """
     Wait for Prefect API to be ready.
 
-    Args:
-        prefect_url: Base Prefect API URL (e.g., http://localhost:4200/api)
-        timeout: Maximum time to wait in seconds
+    :param prefect_url: Base Prefect API URL (e.g., http://localhost:4200/api)
+    :param timeout: Maximum time to wait in seconds
 
-    Returns:
-        bool: True if API is ready, False if timed out
+    :returns: True if API is ready, False if timed out
+    :rtype: bool
     """
     ready_url = f"{prefect_url.rstrip('/')}/ready"
 
@@ -79,12 +77,11 @@ async def wait_for_slurm_api(slurm_url: str, timeout: int = 120) -> bool:
     """
     Wait for Slurm REST API to be ready.
 
-    Args:
-        slurm_url: Base Slurm API URL (e.g., http://localhost:6820)
-        timeout: Maximum time to wait in seconds
+    :param slurm_url: Base Slurm API URL (e.g., http://localhost:6820)
+    :param timeout: Maximum time to wait in seconds
 
-    Returns:
-        bool: True if API is ready, False if timed out
+    :returns: True if API is ready, False if timed out
+    :rtype: bool
     """
     ping_url = f"{slurm_url.rstrip('/')}/slurm/v0.0.42/ping"
 
@@ -107,13 +104,12 @@ def extract_jwt_from_scontrol_output(output: str) -> Optional[str]:
     """
     Extract JWT token from scontrol token command output.
 
-    Args:
-        output: Raw output from scontrol token command
+    :param output: Raw output from scontrol token command
 
-    Returns:
-        str: JWT token if found, None otherwise
+    :returns: JWT token if found, None otherwise
+    :rtype: str
 
-    Example output:
+    .. example::
         SLURM_JWT=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
     """
     # Look for SLURM_JWT=<token> pattern
@@ -138,11 +134,10 @@ def create_token_file(token: str) -> str:
     """
     Create a temporary token file with proper permissions.
 
-    Args:
-        token: JWT token to write
+    :param token: JWT token to write
 
-    Returns:
-        str: Path to the created token file
+    :returns: Path to the created token file
+    :rtype: str
     """
     # Create temporary file
     fd, token_file = tempfile.mkstemp(suffix=".jwt", prefix="slurm_token_")
@@ -175,12 +170,11 @@ async def create_work_pool(
     """
     Create a Slurm work pool via Prefect API.
 
-    Args:
-        prefect_url: Base Prefect API URL
-        pool_name: Name for the work pool
+    :param prefect_url: Base Prefect API URL
+    :param pool_name: Name for the work pool
 
-    Returns:
-        dict: Created work pool data
+    :returns: Created work pool data
+    :rtype: dict
     """
     async with httpx.AsyncClient() as client:
         # Delete existing work pool if it exists to ensure fresh template
@@ -276,18 +270,16 @@ async def wait_for_flow_state(
     """
     Wait for a flow run to reach a specific state.
 
-    Args:
-        client: Prefect client instance
-        flow_run_id: ID of the flow run to monitor
-        expected_state: The state to wait for (e.g., "Scheduled", "Completed")
-        timeout: Maximum time to wait in seconds
-        poll_interval: Time between status checks in seconds
+    :param client: Prefect client instance
+    :param flow_run_id: ID of the flow run to monitor
+    :param expected_state: The state to wait for (e.g., "Scheduled", "Completed")
+    :param timeout: Maximum time to wait in seconds
+    :param poll_interval: Time between status checks in seconds
 
-    Returns:
-        dict: Flow run data when desired state is reached
+    :returns: Flow run data when desired state is reached
+    :rtype: dict
 
-    Raises:
-        TimeoutError: If flow doesn't reach expected state within timeout
+    :raises TimeoutError: If flow doesn't reach expected state within timeout
     """
     start_time = time.time()
 
@@ -324,16 +316,14 @@ async def wait_for_flow_scheduled(
     """
     Wait for a flow run to be scheduled (picked up by worker).
 
-    Args:
-        client: Prefect client instance
-        flow_run_id: ID of the flow run to monitor
-        timeout: Maximum time to wait in seconds
+    :param client: Prefect client instance
+    :param flow_run_id: ID of the flow run to monitor
+    :param timeout: Maximum time to wait in seconds
 
-    Returns:
-        dict: Flow run data when scheduled
+    :returns: Flow run data when scheduled
+    :rtype: dict
 
-    Raises:
-        TimeoutError: If flow isn't scheduled within timeout
+    :raises TimeoutError: If flow isn't scheduled within timeout
     """
     print(f"Waiting for flow run {flow_run_id} to be scheduled...")
     return await wait_for_flow_state(client, flow_run_id, "Scheduled", timeout)
@@ -345,17 +335,15 @@ async def wait_for_flow_completed(
     """
     Wait for a flow run to complete successfully.
 
-    Args:
-        client: Prefect client instance
-        flow_run_id: ID of the flow run to monitor
-        timeout: Maximum time to wait in seconds
+    :param client: Prefect client instance
+    :param flow_run_id: ID of the flow run to monitor
+    :param timeout: Maximum time to wait in seconds
 
-    Returns:
-        dict: Flow run data when completed
+    :returns: Flow run data when completed
+    :rtype: dict
 
-    Raises:
-        TimeoutError: If flow doesn't complete within timeout
-        RuntimeError: If flow fails during execution
+    :raises TimeoutError: If flow doesn't complete within timeout
+    :raises RuntimeError: If flow fails during execution
     """
     print(f"Waiting for flow run {flow_run_id} to complete...")
     return await wait_for_flow_state(client, flow_run_id, "Completed", timeout)
@@ -367,17 +355,15 @@ async def wait_for_flow_crashed(
     """
     Wait for a flow run to crash.
 
-    Args:
-        client: Prefect client instance
-        flow_run_id: ID of the flow run to monitor
-        timeout: Maximum time to wait in seconds
+    :param client: Prefect client instance
+    :param flow_run_id: ID of the flow run to monitor
+    :param timeout: Maximum time to wait in seconds
 
-    Returns:
-        dict: Flow run data when crashed
+    :returns: Flow run data when crashed
+    :rtype: dict
 
-    Raises:
-        TimeoutError: If flow doesn't crash within timeout
-        RuntimeError: If flow reaches unexpected terminal state
+    :raises TimeoutError: If flow doesn't crash within timeout
+    :raises RuntimeError: If flow reaches unexpected terminal state
     """
     print(f"Waiting for flow run {flow_run_id} to crash...")
     return await wait_for_flow_state(client, flow_run_id, "Crashed", timeout)
@@ -387,11 +373,10 @@ def kill_slurm_job(compose: DockerCompose, job_id: str) -> bool:
     """
     Kill a Slurm job using scancel command in the slurm_node container.
 
-    Args:
-        job_id: Slurm job ID to cancel
+    :param job_id: Slurm job ID to cancel
 
-    Returns:
-        bool: True if command executed successfully
+    :returns: True if command executed successfully
+    :rtype: bool
     """
     try:
         _, stderr, exit_code = compose.exec_in_container(
@@ -413,12 +398,11 @@ async def get_slurm_job_id(client: PrefectClient, flow_run_id: str) -> Optional[
     """
     Get the Slurm job ID from a flow run's infrastructure_pid.
 
-    Args:
-        client: Prefect client instance
-        flow_run_id: ID of the flow run
+    :param client: Prefect client instance
+    :param flow_run_id: ID of the flow run
 
-    Returns:
-        str: Slurm job ID if available, None otherwise
+    :returns: Slurm job ID if available, None otherwise
+    :rtype: str
     """
     flow_run = await client.read_flow_run(flow_run_id)
     return flow_run.infrastructure_pid
@@ -430,18 +414,16 @@ async def wait_for_flow_completion(
     """
     Wait for a flow run to complete.
 
-    Args:
-        prefect_url: Base Prefect API URL
-        flow_run_id: ID of the flow run to monitor
-        timeout: Maximum time to wait in seconds
-        poll_interval: Time between status checks in seconds
+    :param prefect_url: Base Prefect API URL
+    :param flow_run_id: ID of the flow run to monitor
+    :param timeout: Maximum time to wait in seconds
+    :param poll_interval: Time between status checks in seconds
 
-    Returns:
-        dict: Final flow run data
+    :returns: Final flow run data
+    :rtype: dict
 
-    Raises:
-        TimeoutError: If flow doesn't complete within timeout
-        httpx.HTTPStatusError: If API request fails
+    :raises TimeoutError: If flow doesn't complete within timeout
+    :raises httpx.HTTPStatusError: If API request fails
     """
     url = f"{prefect_url.rstrip('/')}/flow_runs/{flow_run_id}"
     start_time = time.time()

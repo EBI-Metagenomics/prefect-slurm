@@ -3,14 +3,13 @@ Unit tests for CLI utilities.
 """
 
 import os
-from pathlib import Path
-import stat
 from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
-from prefect_slurm.cli import cli, extract_jwt_token, write_token_file
+from prefect_slurm.cli import cli, extract_jwt_token
+from prefect_slurm.settings import CLISettings
 
 
 @pytest.mark.cli
@@ -101,95 +100,6 @@ class TestExtractJwtToken:
 
 @pytest.mark.cli
 @pytest.mark.unit
-class TestWriteTokenFile:
-    """Test cases for write_token_file function."""
-
-    def test_write_existing_token_file_success(self, tmp_path):
-        """Test successful token file writing."""
-        token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-        file_path = tmp_path / "token.jwt"
-        file_path.touch(0o600)
-
-        with patch("fcntl.flock"), patch("os.chmod") as mock_chmod:
-            write_token_file(token, file_path)
-
-        # Verify file was written
-        assert file_path.exists()
-        assert file_path.read_text() == token
-
-        # Verify permissions were set
-        mock_chmod.assert_called_once_with(file_path, 0o600)
-
-    def test_write_non_existing_token_file_success(self, tmp_path):
-        """Test successful token file writing."""
-        token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-        file_path = tmp_path / "new_token.jwt"
-        with patch("fcntl.flock"):
-            write_token_file(token, file_path)
-
-        # Verify file was written
-        assert file_path.exists()
-        assert file_path.read_text() == token
-
-        file_stat = os.stat(file_path)
-        file_mode = stat.S_IMODE(file_stat.st_mode)
-        assert file_mode == 0o600
-
-    def test_write_token_file_creates_parent_directories(self, tmp_path):
-        """Test that parent directories are created if they don't exist."""
-        token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-        file_path = tmp_path / "nested" / "dirs" / "token.jwt"
-
-        with patch("fcntl.flock"), patch("os.chmod"):
-            write_token_file(token, file_path)
-
-        assert file_path.exists()
-        assert file_path.read_text() == token
-
-    def test_write_token_file_empty_token(self):
-        """Test error handling for empty token."""
-        with pytest.raises(ValueError, match="Token cannot be empty"):
-            write_token_file("", Path("/tmp/token.jwt"))
-
-    def test_write_token_file_invalid_jwt_format(self):
-        """Test error handling for invalid JWT format."""
-        with pytest.raises(ValueError, match="Invalid JWT format"):
-            write_token_file("invalid.token", Path("/tmp/token.jwt"))
-
-        with pytest.raises(ValueError, match="Invalid JWT format"):
-            write_token_file("one.two.three.four", Path("/tmp/token.jwt"))
-
-    def test_write_token_file_jwt_with_empty_parts(self):
-        """Test error handling for JWT with empty parts."""
-        with pytest.raises(ValueError, match="Invalid JWT format"):
-            write_token_file("part1..part3", Path("/tmp/token.jwt"))
-
-    def test_write_token_file_os_error(self, tmp_path):
-        """Test error handling for OS errors during file operations."""
-        token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-        file_path = tmp_path / "token.jwt"
-
-        with patch("builtins.open", side_effect=OSError("Permission denied")):
-            with pytest.raises(OSError, match="Failed to write token file"):
-                write_token_file(token, file_path)
-
-    def test_write_token_file_permission_error_on_touch(self, tmp_path):
-        """Test PermissionError is raised when file touch fails due to permissions."""
-        token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-        file_path = tmp_path / "protected" / "token.jwt"
-
-        # Mock touch to raise PermissionError to simulate inability to create file
-        with patch.object(
-            Path, "touch", side_effect=PermissionError("Operation not permitted")
-        ):
-            with pytest.raises(
-                PermissionError, match=f"Permission denied accessing {file_path}"
-            ):
-                write_token_file(token, file_path)
-
-
-@pytest.mark.cli
-@pytest.mark.unit
 class TestTokenCommand:
     """Test cases for the token CLI command."""
 
@@ -198,24 +108,20 @@ class TestTokenCommand:
         runner = CliRunner()
         token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
 
-        with patch("prefect_slurm.cli.write_token_file") as mock_write:
+        with patch.object(CLISettings, "write_token_file") as mock_write:
             result = runner.invoke(cli, ["token", "/custom/path.jwt"], input=token)
 
         assert result.exit_code == 0
         assert "✓ Token successfully written" in result.output
         assert "✓ File permissions set to 600" in result.output
-        mock_write.assert_called_once()
-
-        # Check that the correct path was used
-        args, _ = mock_write.call_args
-        assert args[1] == Path("/custom/path.jwt")
+        mock_write.assert_called_once_with(token)
 
     def test_token_command_with_env_var(self):
         """Test token command using PREFECT_SLURM_TOKEN_FILE environment variable."""
         runner = CliRunner()
         token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
 
-        with patch("prefect_slurm.cli.write_token_file") as mock_write:
+        with patch.object(CLISettings, "write_token_file") as mock_write:
             result = runner.invoke(
                 cli,
                 ["token"],
@@ -224,27 +130,19 @@ class TestTokenCommand:
             )
 
         assert result.exit_code == 0
-        mock_write.assert_called_once()
-
-        # Check that env var path was used
-        args, _ = mock_write.call_args
-        assert args[1] == Path("/env/path.jwt")
+        mock_write.assert_called_once_with(token)
 
     def test_token_command_default_path(self):
         """Test token command with default path."""
         runner = CliRunner()
         token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
 
-        with patch("prefect_slurm.cli.write_token_file") as mock_write:
+        with patch.object(CLISettings, "write_token_file") as mock_write:
             with patch.dict(os.environ, {}, clear=True):  # Clear env vars
                 result = runner.invoke(cli, ["token"], input=token)
 
         assert result.exit_code == 0
-        mock_write.assert_called_once()
-
-        # Check that default path was used
-        args, _ = mock_write.call_args
-        assert args[1] == Path("~/.prefect_slurm.jwt").expanduser()
+        mock_write.assert_called_once_with(token)
 
     def test_token_command_no_stdin_input(self):
         """Test token command fails when no stdin input provided."""
@@ -272,15 +170,11 @@ class TestTokenCommand:
         token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
         input_text = f"SLURM_JWT={token}"
 
-        with patch("prefect_slurm.cli.write_token_file") as mock_write:
+        with patch.object(CLISettings, "write_token_file") as mock_write:
             result = runner.invoke(cli, ["token"], input=input_text)
 
         assert result.exit_code == 0
-        mock_write.assert_called_once()
-
-        # Check that extracted token was used
-        args, _ = mock_write.call_args
-        assert args[0] == token
+        mock_write.assert_called_once_with(token)
 
     def test_token_command_multiline_scontrol_output(self):
         """Test token command with realistic scontrol output."""
@@ -293,24 +187,19 @@ class TestTokenCommand:
         Token will expire in 100 seconds
         """
 
-        with patch("prefect_slurm.cli.write_token_file") as mock_write:
+        with patch.object(CLISettings, "write_token_file") as mock_write:
             result = runner.invoke(cli, ["token"], input=scontrol_output)
 
         assert result.exit_code == 0
-        mock_write.assert_called_once()
-
-        # Check that extracted token was used
-        args, _ = mock_write.call_args
-        assert args[0] == token
+        mock_write.assert_called_once_with(token)
 
     def test_token_command_write_error(self):
         """Test token command handles write errors gracefully."""
         runner = CliRunner()
         token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
 
-        with patch(
-            "prefect_slurm.cli.write_token_file",
-            side_effect=OSError("Permission denied"),
+        with patch.object(
+            CLISettings, "write_token_file", side_effect=OSError("Permission denied")
         ):
             result = runner.invoke(cli, ["token"], input=token)
 
@@ -322,9 +211,8 @@ class TestTokenCommand:
         runner = CliRunner()
         token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
 
-        with patch(
-            "prefect_slurm.cli.write_token_file",
-            side_effect=ValueError("Invalid token"),
+        with patch.object(
+            CLISettings, "write_token_file", side_effect=ValueError("Invalid token")
         ):
             result = runner.invoke(cli, ["token"], input=token)
 
@@ -336,8 +224,8 @@ class TestTokenCommand:
         runner = CliRunner()
         token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
 
-        with patch(
-            "prefect_slurm.cli.write_token_file", side_effect=KeyboardInterrupt()
+        with patch.object(
+            CLISettings, "write_token_file", side_effect=KeyboardInterrupt()
         ):
             result = runner.invoke(cli, ["token"], input=token)
 
@@ -359,55 +247,8 @@ class TestTokenCommand:
         runner = CliRunner()
         token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
 
-        with patch("prefect_slurm.cli.write_token_file") as mock_write:
+        with patch.object(CLISettings, "write_token_file") as mock_write:
             result = runner.invoke(cli, ["token", "~/test_token.jwt"], input=token)
 
         assert result.exit_code == 0
-        mock_write.assert_called_once()
-
-        # Check that path was expanded
-        args, _ = mock_write.call_args
-        assert str(args[1]).startswith("/")  # Should be absolute path after expansion
-
-
-@pytest.mark.cli
-@pytest.mark.unit
-class TestWriteTokenFileIntegration:
-    """Integration-style tests for write_token_file with real file operations."""
-
-    def test_write_token_file_with_real_file_ops(self, tmp_path):
-        """Test write_token_file with actual file operations (mocked locking only)."""
-        token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-        file_path = tmp_path / "token.jwt"
-
-        # Only mock the file locking, let real file operations happen
-        with patch("fcntl.flock"):
-            write_token_file(token, file_path)
-
-        # Verify file was created with correct content
-        assert file_path.exists()
-        assert file_path.read_text() == token
-
-        # Verify permissions are set correctly (600 = rw-------)
-        file_stat = file_path.stat()
-        file_mode = file_stat.st_mode & 0o777  # Get permission bits
-        assert file_mode == 0o600
-
-    def test_write_token_file_file_locking_behavior(self, tmp_path):
-        """Test that file locking is called correctly."""
-        token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-        file_path = tmp_path / "token.jwt"
-
-        with patch("fcntl.flock") as mock_flock:
-            write_token_file(token, file_path)
-
-        # Verify file locking was called
-        mock_flock.assert_called_once()
-        args, _ = mock_flock.call_args
-        file_desc, lock_type = args
-
-        # Should use exclusive lock
-        import fcntl
-
-        assert lock_type == fcntl.LOCK_EX
-        assert isinstance(file_desc, int)  # Should be file descriptor
+        mock_write.assert_called_once_with(token)

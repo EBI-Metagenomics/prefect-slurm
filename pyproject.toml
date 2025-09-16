@@ -13,7 +13,8 @@ dependencies = [
     "prefect (>=3.4.13,<4.0.0)",
     "aiofiles (>=23.0.0)",
     "click (>=8.0.0)",
-    "ebi-slurpy (>=0.1.1,<0.2.0)"
+    "ebi-slurpy (>=0.1.1,<0.2.0)",
+    "pydantic-settings (>=2.10.1,<3.0.0)"
 ]
 
 [project.entry-points."prefect.collections"]
@@ -45,6 +46,7 @@ markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "unit: marks tests as unit tests (run with '-m unit')",
     "cli: marks tests as tests for cli (run with '-m cli')",
+    "settings: marks tests as tests for settings (run with '-m settings')",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')"
 ]
 

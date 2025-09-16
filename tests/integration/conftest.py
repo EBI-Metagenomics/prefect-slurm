@@ -58,8 +58,8 @@ async def services_ready(docker_compose_setup: DockerCompose) -> Dict[str, str]:
     """
     Wait for all services to be ready and return service URLs.
 
-    Returns:
-        dict: Service URLs for Prefect and Slurm APIs
+    :returns: Service URLs for Prefect and Slurm APIs
+    :rtype: dict
     """
     prefect_url = "http://localhost:4200/api"
     slurm_url = "http://localhost:6820"
@@ -72,8 +72,8 @@ async def slurm_token(docker_compose_setup: DockerCompose) -> AsyncGenerator[str
     """
     Generate a Slurm JWT token using scontrol and create a token file.
 
-    Returns:
-        str: Path to the created token file
+    :returns: Path to the created token file
+    :rtype: str
     """
     import subprocess
 
@@ -122,12 +122,11 @@ def slurm_env_vars(services_ready: Dict[str, str], slurm_token: str) -> Dict[str
     """
     Environment variables for Slurm worker configuration.
 
-    Args:
-        services_ready: Service URLs from services_ready fixture
-        slurm_token: Token file path from slurm_token fixture
+    :param services_ready: Service URLs from services_ready fixture
+    :param slurm_token: Token file path from slurm_token fixture
 
-    Returns:
-        dict: Environment variables for Slurm worker
+    :returns: Environment variables for Slurm worker
+    :rtype: dict
     """
     return {
         "PREFECT_API_URL": services_ready["prefect_url"],

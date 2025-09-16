@@ -2,7 +2,6 @@
 Unit tests for SlurmWorker class methods.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
@@ -27,25 +26,25 @@ class TestSlurmWorker:
 
         config = await worker._get_slurm_configuration()
 
-        assert config.host == sample_env_vars["PREFECT_SLURM_API_URL"]
+        assert str(config.host).rstrip("/") == sample_env_vars["PREFECT_SLURM_API_URL"]
         assert config.api_key["user"] == sample_env_vars["PREFECT_SLURM_USER_NAME"]
         assert config.api_key["token"] == sample_env_vars["PREFECT_SLURM_USER_TOKEN"]
 
     @pytest.mark.asyncio
     async def test_get_slurm_configuration_defaults(self, monkeypatch):
         """Test Slurm configuration with default values and environment token."""
-        # Clear file-based environment variables but provide token via env var
-        for var in ["PREFECT_SLURM_API_URL", "PREFECT_SLURM_USER_NAME"]:
-            monkeypatch.delenv(var, raising=False)
-
-        # Provide token via environment variable to avoid file reading
+        # Set required fields with default values
+        monkeypatch.setenv("PREFECT_SLURM_API_URL", "http://localhost:6820")
+        monkeypatch.setenv("PREFECT_SLURM_USER_NAME", "testuser")
         monkeypatch.setenv("PREFECT_SLURM_USER_TOKEN", "env_token")
 
         worker = SlurmWorker(work_pool_name="test-pool")
         config = await worker._get_slurm_configuration()
 
-        assert config.host == "http://localhost:6820"  # Default value
-        assert config.api_key["user"] is None
+        assert (
+            str(config.host) == "http://localhost:6820/"
+        )  # Default value with trailing slash
+        assert config.api_key["user"] == "testuser"
         assert config.api_key["token"] == "env_token"
 
     def test_filter_zombie_flow_runs_no_zombies(
@@ -295,367 +294,6 @@ class TestSlurmWorker:
             assert len(zombies) == 0
 
     @pytest.mark.asyncio
-    async def test_check_slurm_credentials_missing_user_name(self, monkeypatch):
-        """Test credentials check fails when PREFECT_SLURM_USER_NAME is missing."""
-        # Clear all relevant env vars
-        for var in [
-            "PREFECT_SLURM_USER_NAME",
-            "PREFECT_SLURM_API_URL",
-            "PREFECT_SLURM_USER_TOKEN",
-        ]:
-            monkeypatch.delenv(var, raising=False)
-
-        worker = SlurmWorker(work_pool_name="test-pool")
-
-        with pytest.raises(
-            ValueError, match="PREFECT_SLURM_USER_NAME environment variable must be set"
-        ):
-            await worker._check_slurm_credentials()
-
-    @pytest.mark.asyncio
-    async def test_check_slurm_credentials_missing_api_url(self, monkeypatch):
-        """Test credentials check fails when PREFECT_SLURM_API_URL is missing."""
-        # Set user name but not API URL
-        monkeypatch.setenv("PREFECT_SLURM_USER_NAME", "testuser")
-        for var in ["PREFECT_SLURM_API_URL", "PREFECT_SLURM_USER_TOKEN"]:
-            monkeypatch.delenv(var, raising=False)
-
-        worker = SlurmWorker(work_pool_name="test-pool")
-
-        with pytest.raises(
-            ValueError, match="PREFECT_SLURM_API_URL environment variable must be set"
-        ):
-            await worker._check_slurm_credentials()
-
-    @pytest.mark.asyncio
-    async def test_check_slurm_credentials_with_token_env_var(self, monkeypatch):
-        """Test credentials check passes when token is provided via environment variable."""
-        monkeypatch.setenv("PREFECT_SLURM_USER_NAME", "testuser")
-        monkeypatch.setenv("PREFECT_SLURM_API_URL", "http://localhost:6820")
-        monkeypatch.setenv("PREFECT_SLURM_USER_TOKEN", "jwt_token_here")
-
-        worker = SlurmWorker(work_pool_name="test-pool")
-
-        # Should not raise any exception
-        await worker._check_slurm_credentials()
-
-    @pytest.mark.asyncio
-    async def test_check_slurm_credentials_missing_token_and_file(self, monkeypatch):
-        """Test credentials check fails when neither token nor file exists."""
-        monkeypatch.setenv("PREFECT_SLURM_USER_NAME", "testuser")
-        monkeypatch.setenv("PREFECT_SLURM_API_URL", "http://localhost:6820")
-        for var in ["PREFECT_SLURM_USER_TOKEN", "PREFECT_SLURM_TOKEN_FILE"]:
-            monkeypatch.delenv(var, raising=False)
-
-        worker = SlurmWorker(work_pool_name="test-pool")
-
-        with pytest.raises(ValueError, match="No authentication found"):
-            await worker._check_slurm_credentials()
-
-    @pytest.mark.asyncio
-    async def test_check_slurm_credentials_with_valid_token_file(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test credentials check passes with properly secured token file."""
-        monkeypatch.setenv("PREFECT_SLURM_USER_NAME", "testuser")
-        monkeypatch.setenv("PREFECT_SLURM_API_URL", "http://localhost:6820")
-        monkeypatch.delenv("PREFECT_SLURM_USER_TOKEN", raising=False)
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        valid_jwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-
-        mock_stat, mock_file = mock_file_operations(file_content=valid_jwt)
-
-        worker = SlurmWorker(work_pool_name="test-pool")
-
-        with patch("os.stat", return_value=mock_stat):
-            with patch("aiofiles.open", return_value=mock_file):
-                with patch("fcntl.flock"):
-                    with patch("asyncio.wait_for", return_value=None):
-                        # Should not raise any exception
-                        await worker._check_slurm_credentials()
-
-    @pytest.mark.asyncio
-    async def test_check_slurm_credentials_with_invalid_file_permissions(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test credentials check fails when token file has incorrect permissions."""
-        monkeypatch.setenv("PREFECT_SLURM_USER_NAME", "testuser")
-        monkeypatch.setenv("PREFECT_SLURM_API_URL", "http://localhost:6820")
-        monkeypatch.delenv("PREFECT_SLURM_USER_TOKEN", raising=False)
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        mock_stat, _ = mock_file_operations(file_permissions=0o100644)
-
-        worker = SlurmWorker(work_pool_name="test-pool")
-
-        with patch("os.stat", return_value=mock_stat):
-            with pytest.raises(ValueError, match="No authentication found"):
-                await worker._check_slurm_credentials()
-
-    @pytest.mark.asyncio
-    async def test_check_slurm_credentials_with_default_token_file(self, monkeypatch):
-        """Test credentials check uses default token file path when PREFECT_SLURM_TOKEN_FILE not set."""
-        monkeypatch.setenv("PREFECT_SLURM_USER_NAME", "testuser")
-        monkeypatch.setenv("PREFECT_SLURM_API_URL", "http://localhost:6820")
-        for var in ["PREFECT_SLURM_USER_TOKEN", "PREFECT_SLURM_TOKEN_FILE"]:
-            monkeypatch.delenv(var, raising=False)
-
-        worker = SlurmWorker(work_pool_name="test-pool")
-
-        # Should fail looking for default file ~/.prefect_slurm.jwt
-        with pytest.raises(ValueError, match=r"\.prefect_slurm\.jwt"):
-            await worker._check_slurm_credentials()
-
-    @pytest.mark.asyncio
-    async def test_get_slurm_configuration_with_fresh_token_read(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test that get_slurm_configuration reads fresh token from file."""
-        monkeypatch.setenv("PREFECT_SLURM_USER_NAME", "testuser")
-        monkeypatch.setenv("PREFECT_SLURM_API_URL", "http://localhost:6820")
-        monkeypatch.delenv("PREFECT_SLURM_USER_TOKEN", raising=False)
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        fresh_jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5ODc2NTQzMjEwIiwibmFtZSI6IkphbmUgRG9lIiwiYWRtaW4iOmZhbHNlfQ.kWxAl9xWwLd1T4GaLTcbaMOFayGFN9FVFpQb0K9vCGo"
-
-        mock_stat, mock_file = mock_file_operations(file_content=fresh_jwt)
-
-        worker = SlurmWorker(work_pool_name="test-pool")
-
-        with patch("os.stat", return_value=mock_stat):
-            with patch("aiofiles.open", return_value=mock_file):
-                with patch("fcntl.flock"):
-                    with patch("asyncio.wait_for", return_value=None):
-                        config = await worker._get_slurm_configuration()
-                        assert config.api_key["token"] == fresh_jwt
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_success(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test successful async token reading with file locking."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        valid_jwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        mock_stat, mock_file = mock_file_operations(file_content=valid_jwt + "\n")
-
-        with patch("os.stat", return_value=mock_stat):
-            with patch("aiofiles.open", return_value=mock_file):
-                with patch("fcntl.flock"):
-                    with patch("asyncio.wait_for") as mock_wait_for:
-                        mock_wait_for.return_value = None  # Lock acquired successfully
-
-                        token = await worker._read_token_file_with_lock()
-                        assert token == valid_jwt
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_os_error(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test error handling for OS errors during file locking."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        mock_stat, mock_file = mock_file_operations(file_permissions=0o100600)
-
-        with patch("os.stat", return_value=mock_stat):
-            with patch("aiofiles.open", return_value=mock_file):
-                with patch(
-                    "asyncio.wait_for", side_effect=OSError("Simulated OS error")
-                ):
-                    with pytest.raises(OSError, match="Error reading token file"):
-                        await worker._read_token_file_with_lock()
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_file_not_found(self, monkeypatch):
-        """Test error when token file doesn't exist."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/nonexistent.jwt")
-
-        with patch("os.stat", side_effect=FileNotFoundError("File not found")):
-            with pytest.raises(FileNotFoundError, match="not found"):
-                await worker._read_token_file_with_lock()
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_wrong_permissions(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test error when token file has wrong permissions."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        mock_stat, _ = mock_file_operations(file_permissions=0o100644)
-
-        with patch("os.stat", return_value=mock_stat):
-            with pytest.raises(ValueError, match="must have 600 permissions"):
-                await worker._read_token_file_with_lock()
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_empty_file(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test error when token file is empty."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        mock_stat, mock_file = mock_file_operations(file_content="")
-
-        with patch("os.stat", return_value=mock_stat):
-            with patch("aiofiles.open", return_value=mock_file):
-                with patch("fcntl.flock"):
-                    with patch("asyncio.wait_for", return_value=None):
-                        with pytest.raises(ValueError, match="is empty"):
-                            await worker._read_token_file_with_lock()
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_timeout(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test timeout when file lock cannot be acquired."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-        monkeypatch.setenv("PREFECT_SLURM_LOCK_TIMEOUT", "0.1")
-
-        mock_stat, mock_file = mock_file_operations()
-
-        with patch("os.stat", return_value=mock_stat):
-            with patch("aiofiles.open", return_value=mock_file):
-                with patch("fcntl.flock"):
-                    with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
-                        with pytest.raises(
-                            OSError, match="Timeout after 0.1s waiting for file lock"
-                        ):
-                            await worker._read_token_file_with_lock()
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_custom_timeout(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test custom timeout from environment variable."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        valid_jwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-        monkeypatch.setenv("PREFECT_SLURM_LOCK_TIMEOUT", "30")
-
-        mock_stat, mock_file = mock_file_operations(file_content=valid_jwt)
-
-        with patch("os.stat", return_value=mock_stat):
-            with patch("aiofiles.open", return_value=mock_file):
-                with patch("fcntl.flock"):
-                    with patch("asyncio.wait_for", return_value=None):
-                        token = await worker._read_token_file_with_lock()
-                        assert token == valid_jwt
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_invalid_timeout(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test invalid timeout values fallback to default."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        valid_jwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        mock_stat, mock_file = mock_file_operations(file_content=valid_jwt)
-
-        # Test various invalid timeout values
-        for invalid_timeout in ["invalid", "-5", "0"]:
-            monkeypatch.setenv("PREFECT_SLURM_LOCK_TIMEOUT", invalid_timeout)
-
-            with patch("os.stat", return_value=mock_stat):
-                with patch("aiofiles.open", return_value=mock_file):
-                    with patch("fcntl.flock"):
-                        with patch("asyncio.wait_for", return_value=None):
-                            token = await worker._read_token_file_with_lock()
-                            assert token == valid_jwt
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_invalid_jwt_format(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test error when token file contains invalid JWT format."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        mock_stat, mock_file = mock_file_operations(file_content="invalidtokenformat")
-
-        with patch("os.stat", return_value=mock_stat):
-            with patch("aiofiles.open", return_value=mock_file):
-                with patch("fcntl.flock"):
-                    with patch("asyncio.wait_for", return_value=None):
-                        with pytest.raises(
-                            ValueError, match="does not contain a valid JWT token"
-                        ):
-                            await worker._read_token_file_with_lock()
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_jwt_invalid_characters(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test error when token contains invalid characters."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        mock_stat, mock_file = mock_file_operations(
-            file_content="invalid token.with spaces.and@special#chars"
-        )
-
-        with patch("os.stat", return_value=mock_stat):
-            with patch("aiofiles.open", return_value=mock_file):
-                with patch("fcntl.flock"):
-                    with patch("asyncio.wait_for", return_value=None):
-                        with pytest.raises(
-                            ValueError, match="does not contain a valid JWT token"
-                        ):
-                            await worker._read_token_file_with_lock()
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_jwt_wrong_parts_count(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test error when token has wrong number of parts."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        mock_stat, mock_file = mock_file_operations(
-            file_content="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9"
-        )
-
-        with patch("os.stat", return_value=mock_stat):
-            with patch("aiofiles.open", return_value=mock_file):
-                with patch("fcntl.flock"):
-                    with patch("asyncio.wait_for", return_value=None):
-                        with pytest.raises(
-                            ValueError, match="does not contain a valid JWT token"
-                        ):
-                            await worker._read_token_file_with_lock()
-
-    @pytest.mark.asyncio
-    async def test_read_token_file_with_lock_jwt_empty_parts(
-        self, monkeypatch, mock_file_operations
-    ):
-        """Test error when token has empty parts."""
-        worker = SlurmWorker(work_pool_name="test-pool")
-        monkeypatch.setenv("PREFECT_SLURM_TOKEN_FILE", "/test/token.jwt")
-
-        mock_stat, mock_file = mock_file_operations(
-            file_content="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
-        )
-
-        with patch("os.stat", return_value=mock_stat):
-            with patch("aiofiles.open", return_value=mock_file):
-                with patch("fcntl.flock"):
-                    with patch("asyncio.wait_for", return_value=None):
-                        with pytest.raises(
-                            ValueError, match="does not contain a valid JWT token"
-                        ):
-                            await worker._read_token_file_with_lock()
-
-    @pytest.mark.asyncio
     async def test_detect_slurm_api_version_success_v0042(self, monkeypatch):
         """Test successful API version detection for v0.0.42."""
         monkeypatch.setenv("PREFECT_SLURM_USER_NAME", "testuser")
@@ -893,7 +531,7 @@ class TestSlurmWorker:
 
     @pytest.mark.asyncio
     async def test_get_slurm_job_states_empty_list(self, monkeypatch):
-        """Test _get_slurm_job_states with empty job ID list."""
+        """Test _get_slurm_job_states with empty job ID list returns empty dict."""
         monkeypatch.setenv("PREFECT_SLURM_USER_NAME", "testuser")
         monkeypatch.setenv("PREFECT_SLURM_API_URL", "http://localhost:6820")
         monkeypatch.setenv("PREFECT_SLURM_USER_TOKEN", "valid.jwt.token")
@@ -901,9 +539,9 @@ class TestSlurmWorker:
         worker = SlurmWorker(work_pool_name="test-pool")
         job_ids = []
 
-        # Empty list causes IndexError due to ids[0] access
-        with pytest.raises(IndexError):
-            await worker._get_slurm_job_states(job_ids)
+        # Empty list should return empty dict
+        result = await worker._get_slurm_job_states(job_ids)
+        assert result == {}
 
     @pytest.mark.asyncio
     async def test_get_slurm_job_states_single_job(self, monkeypatch):

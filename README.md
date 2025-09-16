@@ -63,6 +63,42 @@ pip install prefect-slurm
 | `PREFECT_SLURM_USER_TOKEN` | JWT authentication token | Optional |
 | `PREFECT_SLURM_TOKEN_FILE` | Path to token file | `~/.prefect_slurm.jwt` |
 | `PREFECT_SLURM_LOCK_TIMEOUT` | File lock timeout (seconds) | `60` |
+| `PREFECT_SLURM_ENV_FILE` | Override environment file path | Optional |
+
+### Environment Files
+
+The worker supports loading configuration from environment files using a hierarchical discovery system. Files are loaded in priority order (later files override earlier ones):
+
+1. **System-wide**: `/etc/prefect-slurm/.env`
+2. **XDG Config**: `~/.config/prefect-slurm/.env` (or `$XDG_CONFIG_HOME/prefect-slurm/.env`)
+3. **User Home**: `~/.prefect_slurm.env`
+4. **Current Directory (app-specific)**: `./.prefect_slurm.env`  
+5. **Current Directory**: `./.env`
+6. **Environment Variable Override**: `$PREFECT_SLURM_ENV_FILE`
+
+**Example environment file** (`.prefect_slurm.env`):
+```bash
+# Slurm connection settings
+PREFECT_SLURM_USER_NAME=your_username
+PREFECT_SLURM_API_URL=http://your-slurm-server:6820
+
+# Optional token (alternative to token file)
+PREFECT_SLURM_USER_TOKEN=your_jwt_token_here
+
+# Optional custom token file location
+PREFECT_SLURM_TOKEN_FILE=~/my_custom_token.jwt
+
+# Optional custom lock timeout
+PREFECT_SLURM_LOCK_TIMEOUT=120
+```
+
+You can override the automatic discovery by setting `PREFECT_SLURM_ENV_FILE` to point to a specific file:
+```bash
+export PREFECT_SLURM_ENV_FILE=/path/to/my/custom.env
+prefect worker start --pool slurm-pool --type slurm
+```
+
+**Note**: CLI commands (`prefect-slurm token`) also support environment files, though only `PREFECT_SLURM_TOKEN_FILE` and `PREFECT_SLURM_LOCK_TIMEOUT` are relevant for CLI operations.
 
 ### Work Pool Configuration
 

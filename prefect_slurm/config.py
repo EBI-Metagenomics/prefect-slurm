@@ -73,13 +73,12 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
 
         Ensures that the slurm job script is set to the flow run command.
 
-        Args:
-            flow_run: The flow run to prepare the job configuration for
-            deployment: The deployment associated with the flow run used for
-                preparation.
-            flow: The flow associated with the flow run used for preparation.
-            work_pool: The work pool associated with the flow run used for preparation.
-            worker_name: The name of the worker used for preparation.
+        :param flow_run: The flow run to prepare the job configuration for
+        :param deployment: The deployment associated with the flow run used for
+            preparation.
+        :param flow: The flow associated with the flow run used for preparation.
+        :param work_pool: The work pool associated with the flow run used for preparation.
+        :param worker_name: The name of the worker used for preparation.
         """
         super().prepare_for_flow_run(flow_run, deployment, flow, work_pool, worker_name)
 
