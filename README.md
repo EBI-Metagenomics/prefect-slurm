@@ -2,6 +2,7 @@
 
 **A Prefect worker for running flows on Slurm HPC clusters**
 
+[![Unit Tests](https://github.com/EBI-Metagenomics/prefect-slurm/actions/workflows/test.yaml/badge.svg)](https://github.com/EBI-Metagenomics/prefect-slurm/actions/workflows/test.yaml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
 [![Prefect](https://img.shields.io/badge/prefect-3.4.13%2B-blue.svg)](https://prefect.io)
