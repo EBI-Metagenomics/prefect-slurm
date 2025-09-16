@@ -1,0 +1,133 @@
+---
+services:
+  # Slurm
+  slurm_db:
+    image: mariadb:latest
+    hostname: slurm_db
+    container_name: slurm_db
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_DATABASE: slurm
+      MYSQL_USER: slurm
+      MYSQL_PASSWORD: slurm
+    volumes:
+      - db:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh", "--connect"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+
+  slurm_node:
+    # A single node instance of slurm (dbd, controller, worker, restd)
+    build:
+      context: ..
+      dockerfile: slurm_environment/Dockerfile
+      target: slurm-base
+    command: ["slurmd"]
+    hostname: slurm_node
+    container_name: slurm_node
+    depends_on:
+      slurm_db:
+        condition: service_healthy
+    volumes:
+      - munge:/etc/munge
+      - munge_run:/run/munge
+      - logs:/var/log/slurm
+      - ./configs/slurm.conf:/etc/slurm/slurm.conf
+      - "../examples:/home/slurm/examples"
+      - "./entrypoints/entrypoint.sh:/usr/local/bin/entrypoint.sh"
+    ports:
+      - "6820:6820"
+
+  slurm_submitter:
+    # Slurm submitter node with Python development environment
+    build:
+      context: ..
+      dockerfile: slurm_environment/Dockerfile
+      target: submitter
+    hostname: slurm_submitter
+    container_name: slurm_submitter
+    depends_on:
+      slurm_node:
+        condition: service_started
+      prefect_server:
+        condition: service_healthy
+    healthcheck:
+      test: prefect work-pool inspect "slurm-pool" | grep 'status=WorkPoolStatus.READY'
+      interval: 1m30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+      start_interval: 5s
+    volumes:
+      - munge:/etc/munge
+      - munge_run:/run/munge
+      - logs:/var/log/slurm
+      # Mount source code for development
+      - "../prefect_slurm:/home/slurm/app/prefect_slurm"
+      - "../pyproject.toml:/home/slurm/app/pyproject.toml"
+      - "../poetry.lock:/home/slurm/app/poetry.lock"
+      - "../examples:/home/slurm/examples"
+    environment:
+      - SLURM_CONF=/etc/slurm/slurm.conf
+      - PREFECT_LOGGING_LEVEL=debug
+      - PREFECT_RUNNER_HEARTBEAT_FREQUENCY=35
+      - PREFECT_API_URL=http://prefect_server:4200/api
+      - PREFECT_SLURM_API_URL=http://slurm_node:6820
+      - PREFECT_SLURM_USER_NAME=slurm
+      # - PREFECT_SLURM_TOKEN_FILE=/etc/keys/prefect_slurm/token.jwt
+
+  # Prefect
+  prefect_db:
+    # Postgres for prefect server
+    image: postgres:16
+    restart: always
+    container_name: prefect_db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=prefect
+    ports:
+      - "5433:5432"
+    volumes:
+      - prefectdb:/var/lib/postgresql/data
+
+  prefect_server:
+    # Continuously running prefect server
+    image: prefecthq/prefect:3.4.4-python3.12
+    restart: always
+    container_name: prefect_server
+    volumes:
+      - ./prefectserver:/root/.prefect
+      - "../examples:/opt/data/examples"
+    entrypoint: ["/opt/prefect/entrypoint.sh", "prefect", "server", "start"]
+    environment:
+      - PREFECT_UI_URL=http://127.0.0.1:4200/api
+      - PREFECT_API_URL=http://127.0.0.1:4200/api
+      - PREFECT_SERVER_API_HOST=0.0.0.0
+      - PREFECT_API_DATABASE_CONNECTION_URL=postgresql+asyncpg://postgres:postgres@prefect_db:5432/prefect
+      - EXTRA_PIP_PACKAGES=httpx[cli]
+      - PREFECT_LOCAL_STORAGE_PATH=/root/.prefect/storage
+      # - PREFECT_SERVER_LOGGING_LEVEL=debug
+    healthcheck:
+      interval: 2s
+      retries: 60
+      start_period: 2s
+      test: 'httpx $${PREFECT_API_URL}/ready | grep "\"message\": \"OK\"" || exit 1'
+      timeout: 2s
+    ports:
+      - "4200:4200"
+    depends_on:
+      prefect_db:
+        condition: service_started
+
+volumes:
+  db:
+  munge:
+  munge_run:
+  logs:
+  prefectdb:
+  prefectserver:

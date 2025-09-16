@@ -11,9 +11,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from prefect.workers.base import BaseWorkerResult
+__version__ = "0.1.0"
 
+from prefect_slurm.worker import SlurmWorker
 
-class SlurmWorkerResult(BaseWorkerResult):
-    # TODO: include any slurm jobacct info here maybe?
-    ...
+__all__ = ["SlurmWorker"]
