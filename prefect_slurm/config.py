@@ -101,6 +101,7 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
                 memory_per_node={"set": True, "number": self.memory * 1024},
                 current_working_directory=str(self.working_dir),
                 time_limit={"set": True, "number": self.time_limit * 60},
+                partition=self.partition,
                 environment=self._env_to_list(),
             )
         )

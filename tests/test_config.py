@@ -30,6 +30,7 @@ class TestSlurmWorkerConfiguration:
                 "memory_per_node": {"set": True, "number": 4096},  # 4GB * 1024
                 "current_working_directory": "/tmp/test",
                 "time_limit": {"set": True, "number": 60},  # 1 hour * 60
+                "partition": "compute",
                 "environment": [],
             }
         }
