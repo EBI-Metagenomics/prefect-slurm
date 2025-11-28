@@ -1,6 +1,6 @@
 [project]
 name = "prefect-slurm"
-version = "0.1.1"
+version = "0.1.2"
 description = "Prefect worker for running flows on a Slurm HPC cluster"
 authors = [
     {name = "Aleksandar Rajkovic",email = "aleksandar@ebi.ac.uk"},
