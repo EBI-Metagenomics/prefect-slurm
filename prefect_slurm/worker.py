@@ -302,9 +302,17 @@ class SlurmWorker(
                 job_id=job_query_param
             )
             job_info_json = await job_info.json()
+
+            if "jobs" not in job_info_json:
+                self._logger.warning(
+                    f"Slurm API response missing 'jobs' key. Response: {job_info_json}"
+                )
+                return default_job_states
+
+            jobs = job_info_json.get("jobs", [])
             job_states = {
                 job["job_id"]: job["state"][0]
-                for job in job_info_json["jobs"]
+                for job in jobs
                 if job["state"] is not None
             }
 
