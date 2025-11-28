@@ -307,6 +307,7 @@ class SlurmWorker(
                 self._logger.warning(
                     f"Slurm API response missing 'jobs' key. Response: {job_info_json}"
                 )
+                return default_job_states
 
             jobs = job_info_json.get("jobs", [])
             job_states = {
