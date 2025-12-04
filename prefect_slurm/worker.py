@@ -287,43 +287,42 @@ class SlurmWorker(
         if not ids:
             return dict()
 
+        states: Dict[str, str | None] = {}
+        lock = anyio.Lock()  # In case we get to see GIL being removed from python and if anyio changes it's concurrency model
+
+        async with anyio.create_task_group() as tg:
+            for id in ids:
+                tg.start_soon(self.fetch_and_store_job_state, id, states, lock)
+
+        return states
+
+    async def fetch_and_store_job_state(
+        self, id: str, states: Dict[str, str | None], lock: anyio.Lock
+    ):
         slurm_configuration = await self._get_slurm_configuration()
 
         async with self._ApiClient(slurm_configuration) as client:
             api: slurpy.SlurmApi = self._SlurmApi(client)
 
-            states: Dict[str, str | None] = {}
-            lock = anyio.Lock()
+            try:
+                response = await api.get_jobs_state_without_preload_content(id)
+                result = await response.json()
 
-            async with anyio.create_task_group() as tg:
+                if not result.get("jobs", []):
+                    job_state = None
+                elif not result["jobs"][0].get("state", []):
+                    job_state = None
+                else:
+                    job_state = result["jobs"][0]["state"][0]
+            except self._ApiException as e:
+                self._logger.warning(f"Failed to fetch state for job {id}: {e}")
+                job_state = "UNKNOWN"
+            except Exception as e:
+                self._logger.error(f"Unexpected error fetching state for job {id}: {e}")
+                job_state = "UNKNOWN"
 
-                async def fetch_and_store_job_state(id: str):
-                    try:
-                        response = await api.get_jobs_state_without_preload_content(id)
-                        result = await response.json()
-
-                        if not result.get("jobs", []):
-                            job_state = None
-                        elif not result["jobs"][0].get("state", []):
-                            job_state = None
-                        else:
-                            job_state = result["jobs"][0]["state"][0]
-                    except self._ApiException as e:
-                        self._logger.warning(f"Failed to fetch state for job {id}: {e}")
-                        job_state = "UNKNOWN"
-                    except Exception as e:
-                        self._logger.error(
-                            f"Unexpected error fetching state for job {id}: {e}"
-                        )
-                        job_state = "UNKNOWN"
-
-                    async with lock:
-                        states[id] = job_state
-
-                for id in ids:
-                    tg.start_soon(fetch_and_store_job_state, id)
-
-            return states
+            async with lock:
+                states[id] = job_state
 
     @staticmethod
     def _filter_zombie_flow_runs(
