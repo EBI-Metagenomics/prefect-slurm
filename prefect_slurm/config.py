@@ -93,9 +93,10 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
             (segment for segment in script_segments if segment is not None)
         )
 
-    def get_slurm_job_spec(self) -> Dict[str, Any]:
+    def get_slurm_job_spec(self, flow_run: FlowRun) -> Dict[str, Any]:
         return dict(
             job=dict(
+                name=flow_run.name,
                 script=self.script,
                 cpus_per_task=self.cpu,
                 memory_per_node={"set": True, "number": self.memory * 1024},
