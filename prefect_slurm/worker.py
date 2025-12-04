@@ -292,31 +292,38 @@ class SlurmWorker(
         async with self._ApiClient(slurm_configuration) as client:
             api: slurpy.SlurmApi = self._SlurmApi(client)
 
-            # Very ugly fix for wrongly typed 'job_id' query param in Slurm OpenAPI spec
-            job_id_list = [ids[0], *(f"job_id={id}" for id in ids[1:])]
-            job_query_param = "&".join(job_id_list)
+            states: Dict[str, str | None] = {}
+            lock = anyio.Lock()
 
-            default_job_states = {id: None for id in ids}
+            async with anyio.create_task_group() as tg:
 
-            job_info = await api.get_jobs_state_without_preload_content(
-                job_id=job_query_param
-            )
-            job_info_json = await job_info.json()
+                async def fetch_and_store_job_state(id: str):
+                    try:
+                        response = await api.get_jobs_state_without_preload_content(id)
+                        result = await response.json()
 
-            if "jobs" not in job_info_json:
-                self._logger.warning(
-                    f"Slurm API response missing 'jobs' key. Response: {job_info_json}"
-                )
-                return default_job_states
+                        if not result.get("jobs", []):
+                            job_state = None
+                        elif not result["jobs"][0].get("state", []):
+                            job_state = None
+                        else:
+                            job_state = result["jobs"][0]["state"][0]
+                    except self._ApiException as e:
+                        self._logger.warning(f"Failed to fetch state for job {id}: {e}")
+                        job_state = "UNKNOWN"
+                    except Exception as e:
+                        self._logger.error(
+                            f"Unexpected error fetching state for job {id}: {e}"
+                        )
+                        job_state = "UNKNOWN"
 
-            jobs = job_info_json.get("jobs", [])
-            job_states = {
-                job["job_id"]: job["state"][0]
-                for job in jobs
-                if job["state"] is not None
-            }
+                    async with lock:
+                        states[id] = job_state
 
-            return default_job_states | job_states
+                for id in ids:
+                    tg.start_soon(fetch_and_store_job_state, id)
+
+            return states
 
     @staticmethod
     def _filter_zombie_flow_runs(
@@ -325,11 +332,17 @@ class SlurmWorker(
         zombie_pairs: List[FlowRun] = []
 
         for flow_run in flow_runs:
+            if flow_run.state is None:
+                continue
+
             matching_slurm_job_state = (
                 slurm_job_states[flow_run.infrastructure_pid]
                 if flow_run.infrastructure_pid in slurm_job_states
                 else None
             )
+
+            if matching_slurm_job_state == "UNKNOWN":
+                continue
 
             if (
                 flow_run.state.type == StateType.RUNNING
