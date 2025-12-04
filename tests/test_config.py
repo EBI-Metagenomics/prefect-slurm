@@ -17,14 +17,17 @@ from prefect_slurm.config import SlurmWorkerConfiguration, SlurmWorkerTemplateVa
 class TestSlurmWorkerConfiguration:
     """Test cases for SlurmWorkerConfiguration class."""
 
-    def test_get_slurm_job_spec_basic(self, sample_slurm_configuration):
+    def test_get_slurm_job_spec_basic(
+        self, sample_slurm_configuration, sample_flow_run
+    ):
         """Test basic job spec generation."""
         sample_slurm_configuration.script = "#!/bin/bash\necho 'test'"
 
-        job_spec = sample_slurm_configuration.get_slurm_job_spec()
+        job_spec = sample_slurm_configuration.get_slurm_job_spec(sample_flow_run)
 
         expected = {
             "job": {
+                "name": sample_flow_run.name,
                 "script": "#!/bin/bash\necho 'test'",
                 "cpus_per_task": 2,
                 "memory_per_node": {"set": True, "number": 4096},  # 4GB * 1024
@@ -37,11 +40,13 @@ class TestSlurmWorkerConfiguration:
 
         assert job_spec == expected
 
-    def test_get_slurm_job_spec_minimal(self, minimal_slurm_configuration):
+    def test_get_slurm_job_spec_minimal(
+        self, minimal_slurm_configuration, sample_flow_run
+    ):
         """Test job spec generation with minimal configuration."""
         minimal_slurm_configuration.script = "echo 'minimal'"
 
-        job_spec = minimal_slurm_configuration.get_slurm_job_spec()
+        job_spec = minimal_slurm_configuration.get_slurm_job_spec(sample_flow_run)
 
         assert job_spec["job"]["script"] == "echo 'minimal'"
         assert job_spec["job"]["cpus_per_task"] == 1  # default
@@ -232,7 +237,9 @@ class TestSlurmWorkerConfiguration:
             (8, 32, 48),
         ],
     )
-    def test_job_spec_with_different_resources(self, cpu, memory, time_limit):
+    def test_job_spec_with_different_resources(
+        self, cpu, memory, time_limit, sample_flow_run
+    ):
         """Test job spec generation with different resource configurations."""
         config = SlurmWorkerConfiguration(
             cpu=cpu,
@@ -242,7 +249,7 @@ class TestSlurmWorkerConfiguration:
         )
         config.script = "echo 'test'"
 
-        job_spec = config.get_slurm_job_spec()
+        job_spec = config.get_slurm_job_spec(sample_flow_run)
 
         assert job_spec["job"]["cpus_per_task"] == cpu
         assert job_spec["job"]["memory_per_node"]["number"] == memory * 1024

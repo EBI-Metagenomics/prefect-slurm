@@ -124,6 +124,7 @@ def sample_job_spec():
     """Create a sample Slurm job specification."""
     return {
         "job": {
+            "name": "bored-chimpanzee",
             "script": "#!/bin/bash\necho 'Hello World'",
             "cpus_per_task": 2,
             "memory_per_node": {"set": True, "number": 4096},
