@@ -489,17 +489,19 @@ class TestSlurmWorker:
         worker = SlurmWorker(work_pool_name="test-pool")
         job_ids = ["12345", "67890", "99999"]
 
-        # Mock the API response
-        mock_response = AsyncMock()
-        mock_response.json = AsyncMock(
-            return_value={
-                "jobs": [
-                    {"job_id": "12345", "state": ["RUNNING"]},
-                    {"job_id": "67890", "state": ["COMPLETED"]},
-                    {"job_id": "99999", "state": None},
-                ]
+        def create_mock_response(job_id: str):
+            mock_response = AsyncMock()
+
+            responses = {
+                "12345": {"jobs": [{"job_id": "12345", "state": ["RUNNING"]}]},
+                "67890": {"jobs": [{"job_id": "67890", "state": ["COMPLETED"]}]},
+                "99999": {"jobs": [{"job_id": "99999", "state": None}]},
             }
-        )
+            mock_response.json = AsyncMock(
+                return_value=responses.get(job_id, {"jobs": []})
+            )
+
+            return mock_response
 
         with patch.object(worker, "_get_slurm_configuration") as mock_get_config:
             mock_config = Mock()
@@ -509,8 +511,8 @@ class TestSlurmWorker:
             with patch.object(worker, "_ApiClient") as mock_api_client:
                 mock_client = AsyncMock()
                 mock_api = AsyncMock()
-                mock_api.get_jobs_state_without_preload_content.return_value = (
-                    mock_response
+                mock_api.get_jobs_state_without_preload_content.side_effect = (
+                    create_mock_response
                 )
 
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -524,10 +526,14 @@ class TestSlurmWorker:
                     assert result == expected
 
                     # Verify the job_id query param formatting
-                    expected_job_param = "12345&job_id=67890&job_id=99999"
-                    mock_api.get_jobs_state_without_preload_content.assert_called_once_with(
-                        job_id=expected_job_param
+                    assert (
+                        mock_api.get_jobs_state_without_preload_content.call_count == 3
                     )
+                    called_job_ids = [
+                        call.args[0]
+                        for call in mock_api.get_jobs_state_without_preload_content.call_args_list
+                    ]
+                    assert set(called_job_ids) == {"12345", "67890", "99999"}
 
     @pytest.mark.asyncio
     async def test_get_slurm_job_states_empty_list(self, monkeypatch):
@@ -581,9 +587,8 @@ class TestSlurmWorker:
                     expected = {"12345": "PENDING"}
                     assert result == expected
 
-                    # For single job, no additional job_id= prefix needed
                     mock_api.get_jobs_state_without_preload_content.assert_called_once_with(
-                        job_id="12345"
+                        "12345"
                     )
 
     @pytest.mark.asyncio
