@@ -69,7 +69,7 @@ services:
       # Mount source code for development
       - "../prefect_slurm:/home/slurm/app/prefect_slurm"
       - "../pyproject.toml:/home/slurm/app/pyproject.toml"
-      - "../poetry.lock:/home/slurm/app/poetry.lock"
+      - "../uv.lock:/home/slurm/app/uv.lock"
       - "../examples:/home/slurm/examples"
     environment:
       - SLURM_CONF=/etc/slurm/slurm.conf

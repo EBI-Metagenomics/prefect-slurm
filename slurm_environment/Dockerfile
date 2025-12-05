@@ -73,21 +73,20 @@ RUN mkdir -p /home/slurm/app && chown -R slurm:slurm /home/slurm/app
 USER slurm
 WORKDIR /home/slurm/app
 
-# Install Poetry as slurm user
-RUN curl -sSL https://install.python-poetry.org | python3.12 -
+# Install uv as slurm user
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/slurm/.local/bin:$PATH"
 
 # Copy dependency files first
 COPY --chown=slurm:slurm pyproject.toml pyproject.toml 
-COPY --chown=slurm:slurm poetry.toml poetry.toml 
-COPY --chown=slurm:slurm poetry.lock poetry.lock
+COPY --chown=slurm:slurm uv.lock uv.lock
 COPY --chown=slurm:slurm README.md ./
 COPY --chown=slurm:slurm prefect_slurm/ prefect_slurm/
 
-# Install the project in editable mode
-RUN poetry install --with dev
+# Install the project in editable mode with dev dependencies
+RUN uv sync --frozen
 
-# Set PATH environment variable to include Poetry's virtual environment
+# Set PATH environment variable to include uv's virtual environment
 ENV PATH="/home/slurm/app/.venv/bin:$PATH"
 
 # Environment variables for Prefect
