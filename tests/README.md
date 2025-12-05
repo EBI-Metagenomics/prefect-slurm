@@ -14,15 +14,15 @@ This directory contains unit and integration tests for the Prefect Slurm worker.
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- Poetry for dependency management
+- `uv` for dependency management
 - Port 4200, 6820, 3306, 5433 available on localhost (for integration tests)
 
 ## Dependencies
 
-Install test dependencies:
+Install all dependencies:
 
 ```bash
-poetry install --with dev
+uv sync --frozen
 ```
 
 This installs:
@@ -35,32 +35,32 @@ This installs:
 
 ### Unit Tests Only
 ```bash
-poetry run pytest -m unit
+uv run pytest -m unit
 ```
 
 ### Integration Tests Only  
 ```bash
-poetry run pytest -m integration
+uv run pytest -m integration
 ```
 
 ### All Tests (excluding integration)
 ```bash
-poetry run pytest -m "not integration"
+uv run pytest -m "not integration"
 ```
 
 ### All Tests (including integration)
 ```bash
-poetry run pytest
+uv run pytest
 ```
 
 ### Specific Test
 ```bash
-poetry run pytest tests/test_worker.py::TestSlurmWorker::test_zombie_detection_edge_cases -v
+uv run pytest tests/test_worker.py::TestSlurmWorker::test_zombie_detection_edge_cases -v
 ```
 
 ### With Output (see prints)
 ```bash
-poetry run pytest -s tests/integration/test_slurm_integration.py::test_slurm_integration_happy_path -v
+uv run pytest -s tests/integration/test_slurm_integration.py::test_slurm_integration_happy_path -v
 ```
 
 ## Test Structure

@@ -6,9 +6,8 @@ authors = [
     {name = "Aleksandar Rajkovic",email = "aleksandar@ebi.ac.uk"},
     {name = "Sandy Rogers",email = "sandyr@ebi.ac.uk"}
 ]
-license = {text = "Apache 2.0"}
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 dependencies = [
     "prefect (>=3.4.13,<4.0.0)",
     "aiofiles (>=23.0.0)",
@@ -17,24 +16,28 @@ dependencies = [
     "pydantic-settings (>=2.10.1,<3.0.0)"
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-asyncio>=0.23.0",
+    "watchdog>=6.0.0",
+    "testcontainers>=4.12.0,<4.13.0",
+    "httpx>=0.28.1",
+    "pre-commit>=4.3.0",
+    "pytest-cov>=6.2.1"
+]
+
 [project.entry-points."prefect.collections"]
 prefect_slurm = "prefect_slurm.worker"
 
 [project.scripts]
 prefect-slurm = "prefect_slurm.cli:cli"
 
-[tool.poetry]
+[tool.uv]
+package=true
 
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.4.1"
-pytest-asyncio = "^0.23.0"
-watchdog = "^6.0.0"
-testcontainers = "~4.12.0"
-httpx = "^0.28.1"
-pre-commit = "^4.3.0"
-pytest-cov = "^6.2.1"
-
+[tool.setuptools]
+packages = ["prefect_slurm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -49,7 +52,3 @@ markers = [
     "settings: marks tests as tests for settings (run with '-m settings')",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')"
 ]
-
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
