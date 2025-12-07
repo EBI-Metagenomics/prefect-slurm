@@ -33,9 +33,9 @@ def docker_compose_setup() -> Generator[DockerCompose, None, None]:
     """
     compose_path = get_docker_compose_path()
 
-    docker_compose_path = shutil.which("docker-compose")
+    docker_path = shutil.which("docker")
 
-    if not docker_compose_path:
+    if not docker_path:
         raise RuntimeError(
             "Docker command not found - install Docker to run integration tests"
         )
@@ -47,7 +47,7 @@ def docker_compose_setup() -> Generator[DockerCompose, None, None]:
         compose_file_name=compose_path.name,
         pull=False,
         wait=True,
-        docker_command_path=docker_compose_path,
+        docker_command_path=docker_path,
     ) as compose:
         print("Waiting for services to start up...")
         yield compose
