@@ -1,0 +1,55 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  integration-tests:
+    name: Integration / Docker E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.9.15"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install the project
+        run: uv sync --locked --all-extras --dev
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build slurm-base image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: slurm_environment/Dockerfile
+          target: slurm-base
+          load: true
+          cache-from: type=gha,scope=slurm-base
+          cache-to: type=gha,mode=max,scope=slurm-base
+
+      - name: Build submitter image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: slurm_environment/Dockerfile
+          target: submitter
+          load: true
+          tags: prefect-slurm-submitter:latest
+          cache-from: type=gha,scope=submitter
+          cache-to: type=gha,mode=max,scope=submitter
+
+      - name: Run integration tests
+        run: uv run pytest -m integration -v --tb=short
+        timeout-minutes: 20
