@@ -4,6 +4,7 @@ Unit tests for SlurmWorker class methods.
 
 import importlib
 import os
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
@@ -14,12 +15,234 @@ from prefect.states import Pending, Running
 from prefect.workers.base import BaseWorkerResult
 from slurpy.v0042.asyncio.rest import ApiException
 
-from prefect_slurm.worker import SlurmWorker
+from prefect_slurm.worker import (
+    DEPLOYMENT_CONCURRENCY_LEASE_DURATION_SECONDS,
+    SlurmWorker,
+)
 
 
 @pytest.mark.unit
 class TestSlurmWorker:
     """Test cases for SlurmWorker class methods."""
+
+    @pytest.mark.asyncio
+    async def test_filter_runs_by_deployment_concurrency(self):
+        worker = SlurmWorker(work_pool_name="test-pool")
+        limited_deployment_id = uuid4()
+        unlimited_deployment_id = uuid4()
+
+        limited_runs = [
+            FlowRun(
+                id=uuid4(),
+                flow_id=uuid4(),
+                deployment_id=limited_deployment_id,
+                name=f"limited-{index}",
+                state=Pending(),
+            )
+            for index in range(3)
+        ]
+        unlimited_run = FlowRun(
+            id=uuid4(),
+            flow_id=uuid4(),
+            deployment_id=unlimited_deployment_id,
+            name="unlimited",
+            state=Pending(),
+        )
+        entries = [
+            SimpleNamespace(flow_run=flow_run)
+            for flow_run in [*limited_runs, unlimited_run]
+        ]
+
+        with patch.object(
+            worker,
+            "_get_deployment_available_slurm_slots",
+            AsyncMock(side_effect=[2, None]),
+        ) as get_slots:
+            filtered = await worker._filter_runs_by_deployment_concurrency(entries)
+
+        assert [entry.flow_run for entry in filtered] == [
+            limited_runs[0],
+            limited_runs[1],
+            unlimited_run,
+        ]
+        assert get_slots.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_get_deployment_available_slurm_slots(self):
+        worker = SlurmWorker(work_pool_name="test-pool")
+        deployment_id = uuid4()
+        worker._client = AsyncMock()
+        worker._client.read_deployment.return_value = SimpleNamespace(
+            global_concurrency_limit=SimpleNamespace(
+                active=True,
+                limit=5,
+            )
+        )
+
+        with patch.object(
+            worker,
+            "_count_active_slurm_jobs_for_deployment",
+            AsyncMock(return_value=3),
+        ):
+            available = await worker._get_deployment_available_slurm_slots(
+                deployment_id
+            )
+
+        assert available == 2
+
+    @pytest.mark.asyncio
+    async def test_get_deployment_available_slurm_slots_without_limit(self):
+        worker = SlurmWorker(work_pool_name="test-pool")
+        worker._client = AsyncMock()
+        worker._client.read_deployment.return_value = SimpleNamespace(
+            global_concurrency_limit=None
+        )
+
+        available = await worker._get_deployment_available_slurm_slots(uuid4())
+
+        assert available is None
+
+    @pytest.mark.asyncio
+    async def test_get_deployment_available_slurm_slots_falls_back_on_error(self):
+        worker = SlurmWorker(work_pool_name="test-pool")
+        worker._client = AsyncMock()
+        worker._client.read_deployment.side_effect = RuntimeError("API unavailable")
+
+        available = await worker._get_deployment_available_slurm_slots(uuid4())
+
+        assert available is None
+
+    @pytest.mark.asyncio
+    async def test_count_active_slurm_jobs_for_deployment(self):
+        worker = SlurmWorker(work_pool_name="test-pool")
+        deployment_id = uuid4()
+        worker._client = AsyncMock()
+        worker._client.read_flow_runs.return_value = [
+            FlowRun(
+                id=uuid4(),
+                flow_id=uuid4(),
+                deployment_id=deployment_id,
+                name=f"run-{job_id}",
+                state=Running(),
+                infrastructure_pid=job_id,
+            )
+            for job_id in ["1", "2", "3", "4"]
+        ] + [
+            FlowRun(
+                id=uuid4(),
+                flow_id=uuid4(),
+                deployment_id=deployment_id,
+                name="submission-in-progress",
+                state=Pending(),
+                infrastructure_pid=None,
+            )
+        ]
+
+        with patch.object(
+            worker,
+            "_get_slurm_job_states",
+            AsyncMock(
+                return_value={
+                    "1": "PENDING",
+                    "2": "RUNNING",
+                    "3": "COMPLETED",
+                    "4": "UNKNOWN",
+                }
+            ),
+        ):
+            active_jobs = await worker._count_active_slurm_jobs_for_deployment(
+                deployment_id
+            )
+
+        assert active_jobs == 4
+        flow_run_filter = worker._client.read_flow_runs.call_args.kwargs[
+            "flow_run_filter"
+        ]
+        assert flow_run_filter.deployment_id.any_ == [deployment_id]
+        assert flow_run_filter.state.type.any_ == [
+            StateType.PENDING,
+            StateType.RUNNING,
+            StateType.CANCELLING,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_renew_pending_slurm_concurrency_leases(self):
+        worker = SlurmWorker(work_pool_name="test-pool")
+        lease_id = uuid4()
+        pending_run = FlowRun(
+            id=uuid4(),
+            flow_id=uuid4(),
+            name="queued",
+            state=Pending(
+                state_details={
+                    "deployment_concurrency_lease_id": lease_id,
+                }
+            ),
+            infrastructure_pid="123",
+        )
+        running_run = FlowRun(
+            id=uuid4(),
+            flow_id=uuid4(),
+            name="already-running",
+            state=Running(
+                state_details={
+                    "deployment_concurrency_lease_id": uuid4(),
+                }
+            ),
+            infrastructure_pid="456",
+        )
+        worker._client = AsyncMock()
+
+        with (
+            patch.object(
+                worker,
+                "_get_running_or_pending_flow_runs",
+                AsyncMock(return_value=[pending_run, running_run]),
+            ),
+            patch.object(
+                worker,
+                "_get_slurm_job_states",
+                AsyncMock(return_value={"123": "PENDING"}),
+            ),
+        ):
+            await worker._renew_pending_slurm_concurrency_leases()
+
+        worker._client.renew_concurrency_lease.assert_awaited_once_with(
+            lease_id=lease_id,
+            lease_duration=DEPLOYMENT_CONCURRENCY_LEASE_DURATION_SECONDS,
+        )
+
+    @pytest.mark.asyncio
+    async def test_renew_pending_slurm_concurrency_leases_ignores_terminal_job(self):
+        worker = SlurmWorker(work_pool_name="test-pool")
+        pending_run = FlowRun(
+            id=uuid4(),
+            flow_id=uuid4(),
+            name="finished",
+            state=Pending(
+                state_details={
+                    "deployment_concurrency_lease_id": uuid4(),
+                }
+            ),
+            infrastructure_pid="123",
+        )
+        worker._client = AsyncMock()
+
+        with (
+            patch.object(
+                worker,
+                "_get_running_or_pending_flow_runs",
+                AsyncMock(return_value=[pending_run]),
+            ),
+            patch.object(
+                worker,
+                "_get_slurm_job_states",
+                AsyncMock(return_value={"123": "COMPLETED"}),
+            ),
+        ):
+            await worker._renew_pending_slurm_concurrency_leases()
+
+        worker._client.renew_concurrency_lease.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_get_slurm_configuration_from_env(self, sample_env_vars):

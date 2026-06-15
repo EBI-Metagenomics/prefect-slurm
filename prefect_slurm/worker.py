@@ -23,6 +23,7 @@ from prefect.client.orchestration import get_client
 from prefect.client.schemas import FlowRun, StateType
 from prefect.client.schemas.filters import (
     FlowRunFilter,
+    FlowRunFilterDeploymentId,
     FlowRunFilterState,
     FlowRunFilterStateType,
     WorkPoolFilter,
@@ -57,6 +58,19 @@ RETRY_MIN_DELAY_JITTER_SECONDS = int(
 RETRY_MAX_DELAY_JITTER_SECONDS = int(
     os.getenv("PREFECT_SLURM_RETRY_MAX_DELAY_JITTER_SECONDS", 20)
 )
+DEPLOYMENT_CONCURRENCY_LEASE_DURATION_SECONDS = 300
+
+SLURM_TERMINAL_JOB_STATES = {
+    "BOOT_FAIL",
+    "CANCELLED",
+    "COMPLETED",
+    "DEADLINE",
+    "FAILED",
+    "NODE_FAIL",
+    "OUT_OF_MEMORY",
+    "PREEMPTED",
+    "TIMEOUT",
+}
 
 
 class SlurmWorker(
@@ -154,6 +168,16 @@ class SlurmWorker(
                             backoff=4,  # Up to ~1 minute interval during backoff
                         )
                     )
+                    loops_task_group.start_soon(
+                        partial(
+                            critical_service_loop,
+                            workload=self._renew_pending_slurm_concurrency_leases,
+                            interval=PREFECT_WORKER_QUERY_SECONDS.value(),
+                            run_once=run_once,
+                            jitter_range=0.3,
+                            backoff=4,
+                        )
+                    )
 
                     if with_healthcheck:
                         from prefect.workers.server import build_healthcheck_server
@@ -225,6 +249,153 @@ class SlurmWorker(
             status_code=0,
             identifier=str(response.job_id),
         )
+
+    async def _get_scheduled_flow_runs(self):
+        """Poll runs and remove those blocked by Slurm-backed deployment capacity."""
+        runs_response = await super()._get_scheduled_flow_runs()
+        return await self._filter_runs_by_deployment_concurrency(
+            runs_response=runs_response
+        )
+
+    async def _filter_runs_by_deployment_concurrency(self, runs_response):
+        """Keep only runs for which their deployment has Slurm capacity.
+
+        Prefect still performs its native, atomic deployment concurrency check when
+        each selected run transitions to PENDING. This guard covers Slurm jobs that
+        outlive the worker submission task and leaves excess runs SCHEDULED.
+        """
+        available_slots: Dict[Any, Optional[int]] = {}
+        filtered_response = []
+
+        for entry in runs_response:
+            flow_run = entry.flow_run
+            deployment_id = flow_run.deployment_id
+
+            if deployment_id is None:
+                filtered_response.append(entry)
+                continue
+
+            if deployment_id not in available_slots:
+                available_slots[
+                    deployment_id
+                ] = await self._get_deployment_available_slurm_slots(deployment_id)
+
+            slots = available_slots[deployment_id]
+            if slots is None:
+                filtered_response.append(entry)
+            elif slots > 0:
+                filtered_response.append(entry)
+                available_slots[deployment_id] = slots - 1
+            else:
+                self.get_flow_run_logger(flow_run).info(
+                    "Deployment concurrency limit reached by active Slurm jobs; "
+                    "leaving flow run scheduled"
+                )
+
+        return filtered_response
+
+    async def _get_deployment_available_slurm_slots(
+        self, deployment_id
+    ) -> Optional[int]:
+        """Return available Slurm slots, or None when no guard can be applied."""
+        try:
+            deployment = await self.client.read_deployment(deployment_id)
+            concurrency_limit = deployment.global_concurrency_limit
+
+            if concurrency_limit is None or not concurrency_limit.active:
+                return None
+
+            active_jobs = await self._count_active_slurm_jobs_for_deployment(
+                deployment_id
+            )
+            return max(0, concurrency_limit.limit - active_jobs)
+        except Exception:
+            self._logger.warning(
+                "Could not inspect Slurm-backed concurrency for deployment %s; "
+                "falling back to Prefect's native deployment concurrency enforcement",
+                deployment_id,
+                exc_info=True,
+            )
+            return None
+
+    async def _count_active_slurm_jobs_for_deployment(self, deployment_id) -> int:
+        """Count submitted Slurm jobs for active runs of one deployment."""
+        flow_runs = await self.client.read_flow_runs(
+            flow_run_filter=FlowRunFilter(
+                deployment_id=FlowRunFilterDeploymentId(any_=[deployment_id]),
+                state=FlowRunFilterState(
+                    type=FlowRunFilterStateType(
+                        any_=[
+                            StateType.PENDING,
+                            StateType.RUNNING,
+                            StateType.CANCELLING,
+                        ]
+                    )
+                ),
+            )
+        )
+        slurm_job_ids = [
+            flow_run.infrastructure_pid
+            for flow_run in flow_runs
+            if flow_run.infrastructure_pid is not None
+        ]
+        submission_reservations = sum(
+            flow_run.infrastructure_pid is None for flow_run in flow_runs
+        )
+        slurm_job_states = await self._get_slurm_job_states(slurm_job_ids)
+
+        return submission_reservations + sum(
+            state not in SLURM_TERMINAL_JOB_STATES
+            for state in slurm_job_states.values()
+        )
+
+    async def _renew_pending_slurm_concurrency_leases(self) -> None:
+        """Maintain deployment leases while flow runs wait in the Slurm queue."""
+        flow_runs = await self._get_running_or_pending_flow_runs()
+        pending_runs_with_leases = [
+            flow_run
+            for flow_run in flow_runs
+            if flow_run.state is not None
+            and flow_run.state.type == StateType.PENDING
+            and flow_run.infrastructure_pid is not None
+            and flow_run.state.state_details.deployment_concurrency_lease_id is not None
+        ]
+        if not pending_runs_with_leases:
+            return
+
+        slurm_job_states = await self._get_slurm_job_states(
+            [
+                flow_run.infrastructure_pid
+                for flow_run in pending_runs_with_leases
+                if flow_run.infrastructure_pid is not None
+            ]
+        )
+        for flow_run in pending_runs_with_leases:
+            if slurm_job_states.get(flow_run.infrastructure_pid) not in {
+                "PENDING",
+                "RUNNING",
+            }:
+                continue
+
+            lease_id = (
+                flow_run.state.state_details.deployment_concurrency_lease_id
+                if flow_run.state is not None
+                else None
+            )
+            if lease_id is None:
+                continue
+
+            try:
+                await self.client.renew_concurrency_lease(
+                    lease_id=lease_id,
+                    lease_duration=DEPLOYMENT_CONCURRENCY_LEASE_DURATION_SECONDS,
+                )
+            except Exception:
+                self.get_flow_run_logger(flow_run).warning(
+                    "Could not renew deployment concurrency lease while Slurm job "
+                    "is queued",
+                    exc_info=True,
+                )
 
     async def _get_slurm_configuration(self, configuration_class: Optional[Any] = None):
         """Get Slurm configuration with async token reading.

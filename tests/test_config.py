@@ -110,9 +110,9 @@ class TestSlurmWorkerConfiguration:
 
         expected = (
             'VENV_DIR="$TMPDIR/.venv_$SLURM_JOB_ID"\n'
-            'python -m venv "$VENV_DIR"\n'
+            '/usr/bin/python3 -m venv "$VENV_DIR"\n'
             'source "$VENV_DIR/bin/activate"\n'
-            f'pip install "prefect=={prefect_version}"'
+            f'pip install "prefect=={prefect_version}" importlib-metadata'
         )
 
         assert expected == venv_segment
@@ -178,6 +178,7 @@ class TestSlurmWorkerConfiguration:
         # Check that script was generated
         assert sample_slurm_configuration.script is not None
         assert "#!/bin/bash" in sample_slurm_configuration.script
+        assert "set -e" in sample_slurm_configuration.script
         assert "python -m prefect.engine" in sample_slurm_configuration.script
 
     def test_prepare_for_flow_run_with_custom_shebang(self, sample_slurm_configuration):
@@ -323,6 +324,7 @@ class TestSlurmWorkerTemplateVariables:
         assert variables.cpu == 1
         assert variables.memory == 4
         assert variables.partition is None
+        assert variables.python_executable == "/usr/bin/python3"
         assert variables.shebang == "#!/bin/bash"
         assert variables.time_limit == 1
         assert variables.source_files == []
