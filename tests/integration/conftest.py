@@ -3,10 +3,9 @@ Pytest configuration and fixtures for integration tests.
 """
 
 import os
-import shutil
-import subprocess
 import tempfile
 from typing import AsyncGenerator, Dict, Generator
+import shutil
 
 import pytest
 from testcontainers.compose import DockerCompose
@@ -18,34 +17,6 @@ from .utils import (
 )
 
 # Use default event loop from pytest-asyncio
-
-
-def _compose_services_are_running(compose_path) -> bool:
-    result = subprocess.run(
-        [
-            "docker",
-            "compose",
-            "-f",
-            compose_path.name,
-            "ps",
-            "--services",
-            "--status",
-            "running",
-        ],
-        cwd=compose_path.parent,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    running_services = set(result.stdout.split())
-    required_services = {
-        "prefect_db",
-        "prefect_server",
-        "slurm_db",
-        "slurm_node",
-        "slurm_submitter",
-    }
-    return required_services.issubset(running_services)
 
 
 @pytest.fixture(scope="session")
@@ -69,22 +40,17 @@ def docker_compose_setup() -> Generator[DockerCompose, None, None]:
             "Docker command not found - install Docker to run integration tests"
         )
 
-    compose = DockerCompose(
+    # Always start fresh containers for integration tests
+    print("Starting fresh Docker containers for integration test")
+    with DockerCompose(
         context=str(compose_path.parent),
         compose_file_name=compose_path.name,
         pull=False,
         wait=True,
         docker_command_path=docker_path,
-    )
-
-    if _compose_services_are_running(compose_path):
-        print("Reusing running Docker Compose services")
+    ) as compose:
+        print("Waiting for services to start up...")
         yield compose
-    else:
-        print("Starting fresh Docker containers for integration test")
-        with compose:
-            print("Waiting for services to start up...")
-            yield compose
 
 
 @pytest.fixture(scope="session")

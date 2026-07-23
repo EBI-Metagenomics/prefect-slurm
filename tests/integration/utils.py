@@ -195,9 +195,9 @@ async def create_work_pool(
             "base_job_template": {
                 "job_configuration": {
                     "cpu": "{{ cpu }}",
+                    "env": {"PATH": "/bin/:/usr/bin/:/sbin/"},
                     "memory": "{{ memory }}",
                     "partition": "{{ partition }}",
-                    "python_executable": "{{ python_executable }}",
                     "script": "{{ script }}",
                     "source_files": "{{ source_files }}",
                     "time_limit": "{{ time_limit }}",
@@ -223,15 +223,6 @@ async def create_work_pool(
                             "title": "Partition",
                             "description": "Slurm partition to use",
                             "default": None,
-                        },
-                        "python_executable": {
-                            "type": "string",
-                            "title": "Python Executable",
-                            "description": (
-                                "Python executable used to create the flow-run "
-                                "virtual environment"
-                            ),
-                            "default": "/usr/bin/python3",
                         },
                         "script": {
                             "type": "string",
@@ -404,27 +395,18 @@ def kill_slurm_job(compose: DockerCompose, job_id: str) -> bool:
         return False
 
 
-async def get_slurm_job_id(
-    client: PrefectClient, flow_run_id: str, timeout: int = 90
-) -> Optional[str]:
+async def get_slurm_job_id(client: PrefectClient, flow_run_id: str) -> Optional[str]:
     """
     Get the Slurm job ID from a flow run's infrastructure_pid.
 
     :param client: Prefect client instance
     :param flow_run_id: ID of the flow run
 
-    :param timeout: Maximum time to wait for worker submission
-
-    :returns: Slurm job ID if available before timeout, None otherwise
+    :returns: Slurm job ID if available, None otherwise
     :rtype: str
     """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        flow_run = await client.read_flow_run(flow_run_id)
-        if flow_run.infrastructure_pid is not None:
-            return flow_run.infrastructure_pid
-        await asyncio.sleep(1)
-    return None
+    flow_run = await client.read_flow_run(flow_run_id)
+    return flow_run.infrastructure_pid
 
 
 async def wait_for_flow_completion(

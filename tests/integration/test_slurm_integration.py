@@ -485,8 +485,13 @@ async def test_zombie_flow_killed_slurm_job(
                 await wait_for_flow_scheduled(client, str(flow_run.id), timeout=60)
                 print(f"✅ Flow run {flow_run.id} successfully scheduled!")
 
-                # Wait for worker submission and get the Slurm job ID
-                print("Waiting for flow submission to Slurm...")
+                # Wait a bit for job to actually start running
+                print("Waiting for flow to start running...")
+                import asyncio
+
+                await asyncio.sleep(10)
+
+                # Get the Slurm job ID
                 job_id = await get_slurm_job_id(client, str(flow_run.id))
                 print(f"Flow run has Slurm job ID: {job_id}")
 

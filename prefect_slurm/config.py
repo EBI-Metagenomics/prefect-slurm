@@ -35,10 +35,6 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
     cpu: int = Field(default=1, description="CPU count required for the flow")
     memory: int = Field(default=4, description="Memory in GB required for the flow")
     partition: Optional[str] = Field(default=None, description="Slurm partition to use")
-    python_executable: str = Field(
-        default="/usr/bin/python3",
-        description="Python executable used to create the flow-run virtual environment",
-    )
     shebang: str = Field(
         default="#!/bin/bash",
         pattern=r"^#!/.+$",
@@ -88,7 +84,6 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
 
         script_segments = [
             self._script_shebang_segment(),
-            "set -e",
             self._script_setup_segment(),
             self.command,
             self._script_teardown_segment(),
@@ -136,7 +131,7 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
     def _script_python_venv_segment(self):
         return (
             f'VENV_DIR="$TMPDIR/.venv_$SLURM_JOB_ID"\n'
-            f'{self.python_executable} -m venv "$VENV_DIR"\n'
+            f'python -m venv "$VENV_DIR"\n'
             f'source "$VENV_DIR/bin/activate"\n'
             f'pip install "prefect=={prefect_version}" importlib-metadata'
         )
@@ -149,10 +144,6 @@ class SlurmWorkerTemplateVariables(BaseVariables):
     cpu: int = Field(default=1, description="CPU count required for the flow")
     memory: int = Field(default=4, description="Memory in GB required for the flow")
     partition: Optional[str] = Field(default=None, description="Slurm partition to use")
-    python_executable: str = Field(
-        default="/usr/bin/python3",
-        description="Python executable used to create the flow-run virtual environment",
-    )
     shebang: str = Field(
         default="#!/bin/bash",
         pattern=r"^#!/.+$",
