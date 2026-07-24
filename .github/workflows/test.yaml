@@ -8,12 +8,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v9
         with:
-          version: "0.9.15"
+          version: "0.11.32"
           enable-cache: true
 
       - name: Set up Python
