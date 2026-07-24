@@ -133,7 +133,7 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
             f'VENV_DIR="$TMPDIR/.venv_$SLURM_JOB_ID"\n'
             f'python -m venv "$VENV_DIR"\n'
             f'source "$VENV_DIR/bin/activate"\n'
-            f'pip install "prefect=={prefect_version}"'
+            f'pip install "prefect=={prefect_version}" importlib-metadata'
         )
 
     def _env_to_list(self):

@@ -18,6 +18,14 @@ Execute your Prefect flows on high-performance computing clusters using the Slur
 🛠️ **CLI Tools** - Built-in utilities for token management and worker administration  
 🧪 **Comprehensive Testing** - Both unit and integration tests
 
+## Caveats
+
+⚠️ **Tasks are not new Slurm jobs** - This does not implement a Task runner, so by default Prefect Tasks are run within their parent flow's Slurm job.
+
+⚠️ **Concurrency limits are only partially supported**: 
+* the active slot count on Prefect UI for a concurrency limit will usually not be correct; only its limit will be respected (because Prefect-Slurm reimplements the concurrency counting)
+* the Prefect state of a flow-run awaiting a concurrency slot will be "Scheduled" not the more descriptive "Awaiting concurrency slot" (for the same reason) 
+
 ## Quick Start
 
 ### Installation

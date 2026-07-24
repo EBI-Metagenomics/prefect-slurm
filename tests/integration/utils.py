@@ -195,6 +195,7 @@ async def create_work_pool(
             "base_job_template": {
                 "job_configuration": {
                     "cpu": "{{ cpu }}",
+                    "env": {"PATH": "/bin/:/usr/bin/:/sbin/"},
                     "memory": "{{ memory }}",
                     "partition": "{{ partition }}",
                     "script": "{{ script }}",

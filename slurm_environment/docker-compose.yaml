@@ -97,7 +97,7 @@ services:
 
   prefect_server:
     # Continuously running prefect server
-    image: prefecthq/prefect:3.4.4-python3.12
+    image: prefecthq/prefect:3.6.5-python3.12
     restart: always
     container_name: prefect_server
     volumes:
@@ -111,6 +111,8 @@ services:
       - PREFECT_API_DATABASE_CONNECTION_URL=postgresql+asyncpg://postgres:postgres@prefect_db:5432/prefect
       - EXTRA_PIP_PACKAGES=httpx[cli]
       - PREFECT_LOCAL_STORAGE_PATH=/root/.prefect/storage
+      # Keep integration tests for queued-job lease expiry fast.
+      - PREFECT_SERVER_CONCURRENCY_INITIAL_DEPLOYMENT_LEASE_DURATION=30
       # - PREFECT_SERVER_LOGGING_LEVEL=debug
     healthcheck:
       interval: 2s
