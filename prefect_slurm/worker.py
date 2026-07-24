@@ -329,6 +329,7 @@ class SlurmWorker(
                             StateType.PENDING,
                             StateType.RUNNING,
                             StateType.CANCELLING,
+                            # TODO: StateType.PAUSED (but not PAUSED(Suspended)) may also be appropriate
                         ]
                     )
                 ),
