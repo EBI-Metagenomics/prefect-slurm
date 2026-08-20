@@ -34,6 +34,7 @@ from prefect.client.schemas.filters import (
 from prefect.exceptions import (
     InfrastructureError,
 )
+from prefect.logging.filters import redact_substr
 from prefect.settings import (
     PREFECT_API_URL,
     PREFECT_TEST_MODE,
@@ -43,7 +44,11 @@ from prefect.utilities.services import critical_service_loop
 from prefect.workers.base import BaseWorker, BaseWorkerResult
 from tenacity import retry, stop_after_attempt, wait_fixed, wait_random
 
-from prefect_slurm.config import SlurmWorkerConfiguration, SlurmWorkerTemplateVariables
+from prefect_slurm.config import (
+    LOG_MASK_PATTERNS,
+    SlurmWorkerConfiguration,
+    SlurmWorkerTemplateVariables,
+)
 from prefect_slurm.settings import WorkerSettings
 
 if TYPE_CHECKING:
@@ -71,6 +76,13 @@ SLURM_TERMINAL_JOB_STATES = {
     "PREEMPTED",
     "TIMEOUT",
 }
+
+
+def mask_sensitive_data(value: Any, env: dict, patterns=LOG_MASK_PATTERNS) -> Any:
+    secrets = (env.get(pattern) or pattern for pattern in patterns)
+    for secret in sorted(filter(None, secrets), key=len, reverse=True):
+        value = redact_substr(value, secret)
+    return value
 
 
 class SlurmWorker(
@@ -236,7 +248,9 @@ class SlurmWorker(
         logger = self.get_flow_run_logger(flow_run)
         logger.info(f"Submitting flow run {flow_run.id} to Slurm")
         job_spec = configuration.get_slurm_job_spec(flow_run)
-        logger.debug(f"Slurm job specs: {job_spec}")
+        logger.debug(
+            f"Slurm job specs: {mask_sensitive_data(job_spec, configuration.env)}"
+        )
 
         response = await self._submit_slurm_job(job_spec)
 

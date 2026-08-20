@@ -18,7 +18,22 @@ from slurpy.v0042.asyncio.rest import ApiException
 from prefect_slurm.worker import (
     DEPLOYMENT_CONCURRENCY_LEASE_DURATION_SECONDS,
     SlurmWorker,
+    mask_sensitive_data,
 )
+
+
+def test_mask_sensitive_data():
+    value = {
+        "environment": ["PASSWORD=secret"],
+        "message": "token=literal-secret",
+    }
+
+    assert mask_sensitive_data(
+        value, {"PASSWORD": "secret"}, ("PASSWORD", "literal-secret")
+    ) == {
+        "environment": ["PASSWORD=********"],
+        "message": "token=********",
+    }
 
 
 @pytest.mark.unit
@@ -591,6 +606,36 @@ class TestSlurmWorker:
 
         # Should not raise an exception
         assert isinstance(result, BaseWorkerResult)
+
+    @pytest.mark.asyncio
+    async def test_run_does_not_log_sensitive_environment_values(
+        self, sample_flow_run, sample_slurm_configuration, mock_slurpy_response
+    ):
+        """Test sensitive environment values are masked in job specification logs."""
+        sensitive_value = "dummy-prefect-api-password"
+        sample_slurm_configuration.env = {
+            "PREFECT_API_AUTH_STRING": f"prefect-admin:{sensitive_value}",
+        }
+        worker = SlurmWorker(work_pool_name="test-pool")
+        flow_run_logger = Mock()
+
+        with (
+            patch.object(
+                worker, "_submit_slurm_job", return_value=mock_slurpy_response
+            ) as mock_submit,
+            patch.object(worker, "get_flow_run_logger", return_value=flow_run_logger),
+        ):
+            await worker.run(
+                flow_run=sample_flow_run,
+                configuration=sample_slurm_configuration,
+            )
+
+        logged_job_spec = flow_run_logger.debug.call_args.args[0]
+        submitted_job_spec = mock_submit.call_args.args[0]
+
+        assert "PREFECT_API_AUTH_STRING=********" in logged_job_spec
+        assert sensitive_value not in logged_job_spec
+        assert sensitive_value in repr(submitted_job_spec)
 
     def test_worker_class_attributes(self):
         """Test worker class attributes are set correctly."""
