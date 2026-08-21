@@ -27,6 +27,12 @@ if TYPE_CHECKING:
     from prefect.flows import Flow as APIFlow
 
 
+LOG_MASK_PATTERNS = (
+    "PREFECT_API_AUTH_STRING",
+    "PREFECT_API_KEY",
+)
+
+
 class SlurmWorkerConfiguration(BaseJobConfiguration):
     """
     Configuration for a Slurm worker.

@@ -12,6 +12,7 @@
 # limitations under the License.
 
 import importlib
+import logging
 import os
 import threading
 from functools import partial
@@ -34,6 +35,7 @@ from prefect.client.schemas.filters import (
 from prefect.exceptions import (
     InfrastructureError,
 )
+from prefect.logging.loggers import PrefectLogAdapter
 from prefect.settings import (
     PREFECT_API_URL,
     PREFECT_TEST_MODE,
@@ -43,7 +45,11 @@ from prefect.utilities.services import critical_service_loop
 from prefect.workers.base import BaseWorker, BaseWorkerResult
 from tenacity import retry, stop_after_attempt, wait_fixed, wait_random
 
-from prefect_slurm.config import SlurmWorkerConfiguration, SlurmWorkerTemplateVariables
+from prefect_slurm.config import (
+    SlurmWorkerConfiguration,
+    SlurmWorkerTemplateVariables,
+)
+from prefect_slurm.logging import RedactingFilter
 from prefect_slurm.settings import WorkerSettings
 
 if TYPE_CHECKING:
@@ -91,6 +97,15 @@ class SlurmWorker(
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        # Attach filter to logger and guard against attaching same filter twice to reusable loggers
+        if isinstance(self._logger, logging.Logger):
+            actual_logger = self._logger
+        else:
+            actual_logger = self._logger.logger
+
+        if not any(isinstance(f, RedactingFilter) for f in actual_logger.filters):
+            actual_logger.addFilter(RedactingFilter())
+
         # Set default classes as fallback, mainly because of tests
 
         slurpy_module = importlib.import_module("slurpy.v0042.asyncio")
@@ -104,6 +119,14 @@ class SlurmWorker(
         self._JobInfo = slurpy_module.JobInfo
 
         self._settings = WorkerSettings()
+
+    def get_flow_run_logger(self, flow_run: FlowRun) -> PrefectLogAdapter:
+        adapter = super().get_flow_run_logger(flow_run)
+
+        if not any(isinstance(f, RedactingFilter) for f in adapter.logger.filters):
+            adapter.logger.addFilter(RedactingFilter())
+
+        return adapter
 
     async def start(
         self,
