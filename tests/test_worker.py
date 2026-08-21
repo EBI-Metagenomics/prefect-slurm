@@ -3,6 +3,7 @@ Unit tests for SlurmWorker class methods.
 """
 
 import importlib
+import logging
 import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -15,25 +16,15 @@ from prefect.states import Pending, Running
 from prefect.workers.base import BaseWorkerResult
 from slurpy.v0042.asyncio.rest import ApiException
 
+from prefect_slurm.logging import RedactingFilter
 from prefect_slurm.worker import (
     DEPLOYMENT_CONCURRENCY_LEASE_DURATION_SECONDS,
     SlurmWorker,
-    mask_sensitive_data,
 )
 
 
-def test_mask_sensitive_data():
-    value = {
-        "environment": ["PASSWORD=secret"],
-        "message": "token=literal-secret",
-    }
-
-    assert mask_sensitive_data(
-        value, {"PASSWORD": "secret"}, ("PASSWORD", "literal-secret")
-    ) == {
-        "environment": ["PASSWORD=********"],
-        "message": "token=********",
-    }
+def _underlying_logger(logger):
+    return logger if isinstance(logger, logging.Logger) else logger.logger
 
 
 @pytest.mark.unit
@@ -609,33 +600,76 @@ class TestSlurmWorker:
 
     @pytest.mark.asyncio
     async def test_run_does_not_log_sensitive_environment_values(
-        self, sample_flow_run, sample_slurm_configuration, mock_slurpy_response
+        self,
+        sample_flow_run,
+        sample_slurm_configuration,
+        mock_slurpy_response,
+        monkeypatch,
+        caplog,
     ):
-        """Test sensitive environment values are masked in job specification logs."""
+        """Test sensitive environment values are masked in job specification logs
+        via the RedactingFilter attached by get_flow_run_logger (not a manual call)."""
         sensitive_value = "dummy-prefect-api-password"
-        sample_slurm_configuration.env = {
-            "PREFECT_API_AUTH_STRING": f"prefect-admin:{sensitive_value}",
-        }
+        auth_string = f"prefect-admin:{sensitive_value}"
+        sample_slurm_configuration.env = {"PREFECT_API_AUTH_STRING": auth_string}
+        monkeypatch.setenv("PREFECT_API_AUTH_STRING", auth_string)
         worker = SlurmWorker(work_pool_name="test-pool")
-        flow_run_logger = Mock()
 
-        with (
-            patch.object(
-                worker, "_submit_slurm_job", return_value=mock_slurpy_response
-            ) as mock_submit,
-            patch.object(worker, "get_flow_run_logger", return_value=flow_run_logger),
-        ):
+        caplog.set_level(logging.DEBUG, logger="prefect.flow_runs.worker")
+
+        with patch.object(
+            worker, "_submit_slurm_job", return_value=mock_slurpy_response
+        ) as mock_submit:
             await worker.run(
                 flow_run=sample_flow_run,
                 configuration=sample_slurm_configuration,
             )
 
-        logged_job_spec = flow_run_logger.debug.call_args.args[0]
         submitted_job_spec = mock_submit.call_args.args[0]
+        debug_records = [
+            record
+            for record in caplog.records
+            if record.name == "prefect.flow_runs.worker"
+            and record.getMessage().startswith("Slurm job specs:")
+        ]
+
+        assert len(debug_records) == 1
+        logged_job_spec = debug_records[0].getMessage()
 
         assert "PREFECT_API_AUTH_STRING=********" in logged_job_spec
         assert sensitive_value not in logged_job_spec
         assert sensitive_value in repr(submitted_job_spec)
+
+    def test_worker_logger_has_redacting_filter(self):
+        """self._logger should get exactly one RedactingFilter attached."""
+        worker = SlurmWorker(work_pool_name="test-pool", name="filter-test-worker")
+
+        logger = _underlying_logger(worker._logger)
+
+        assert sum(isinstance(f, RedactingFilter) for f in logger.filters) == 1
+
+    def test_worker_logger_filter_not_duplicated_across_instances(self):
+        """Re-instantiating a worker with the same name reuses a cached logger;
+        the filter must not be attached more than once to it."""
+        SlurmWorker(work_pool_name="test-pool", name="dedup-worker")
+        worker2 = SlurmWorker(work_pool_name="test-pool", name="dedup-worker")
+
+        logger = _underlying_logger(worker2._logger)
+
+        assert sum(isinstance(f, RedactingFilter) for f in logger.filters) == 1
+
+    def test_flow_run_logger_filter_not_duplicated_on_repeated_calls(
+        self, sample_flow_run
+    ):
+        """get_flow_run_logger returns a new adapter each call, but it's backed by
+        the same cached child logger; the filter must not accumulate duplicates."""
+        worker = SlurmWorker(work_pool_name="test-pool")
+
+        first = worker.get_flow_run_logger(sample_flow_run)
+        second = worker.get_flow_run_logger(sample_flow_run)
+
+        assert first.logger is second.logger
+        assert sum(isinstance(f, RedactingFilter) for f in second.logger.filters) == 1
 
     def test_worker_class_attributes(self):
         """Test worker class attributes are set correctly."""
