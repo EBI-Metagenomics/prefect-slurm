@@ -16,7 +16,7 @@ from prefect.states import Pending, Running
 from prefect.workers.base import BaseWorkerResult
 from slurpy.v0042.asyncio.rest import ApiException
 
-from prefect_slurm.logging import RedactingFilter
+from prefect_slurm.log_filters import RedactingFilter
 from prefect_slurm.worker import (
     DEPLOYMENT_CONCURRENCY_LEASE_DURATION_SECONDS,
     SlurmWorker,

@@ -49,7 +49,7 @@ from prefect_slurm.config import (
     SlurmWorkerConfiguration,
     SlurmWorkerTemplateVariables,
 )
-from prefect_slurm.logging import RedactingFilter
+from prefect_slurm.log_filters import RedactingFilter
 from prefect_slurm.settings import WorkerSettings
 
 if TYPE_CHECKING:

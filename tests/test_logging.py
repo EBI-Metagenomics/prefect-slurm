@@ -1,10 +1,10 @@
 """
-Unit tests for prefect_slurm.logging (mask_sensitive_data and RedactingFilter).
+Unit tests for prefect_slurm.log_filters (mask_sensitive_data and RedactingFilter).
 """
 
 import logging
 
-from prefect_slurm.logging import RedactingFilter, mask_sensitive_data
+from prefect_slurm.log_filters import RedactingFilter, mask_sensitive_data
 
 
 def test_mask_sensitive_data():
