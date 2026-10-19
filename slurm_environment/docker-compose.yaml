@@ -29,6 +29,14 @@ services:
     command: ["slurmd"]
     hostname: slurm_node
     container_name: slurm_node
+    # Apptainer/Singularity creates a user namespace to run containers
+    # unprivileged; Docker's default seccomp profile blocks that syscall.
+    security_opt:
+      - seccomp:unconfined
+    # Apptainer mounts .sif images via FUSE (squashfuse); needs /dev/fuse
+    # exposed into the container.
+    devices:
+      - /dev/fuse
     depends_on:
       slurm_db:
         condition: service_healthy

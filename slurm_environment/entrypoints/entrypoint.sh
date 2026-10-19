@@ -43,6 +43,16 @@ source /home/slurm/environments/prefect/bin/activate
 pip install prefect
 deactivate
 
+# Build the local Apptainer test image used by container-execution integration
+# tests (built at container start, not at `docker build` time, since
+# `apptainer build` needs to create a user namespace which BuildKit's RUN
+# sandbox disallows even as root).
+if [ ! -f /opt/test-images/prefect-test.sif ]; then
+    echo "ℹ️ Building local Apptainer test image"
+    apptainer build /opt/test-images/prefect-test.sif /opt/test-images/prefect-test.def
+    chmod 644 /opt/test-images/prefect-test.sif
+fi
+
 tail -f /var/log/slurm/slurmdbd.log /var/log/slurm/slurmd.log /var/log/slurm/slurmctld.log /var/log/slurm/slurmrestd.log
 
 exec "$@"

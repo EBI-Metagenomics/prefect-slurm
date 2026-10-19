@@ -30,6 +30,18 @@ RUN apt-get install -y \
     && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
     && ln -sf /usr/bin/python3.12 /usr/bin/python
 
+# Apptainer (Singularity) for container-based flow execution
+RUN apt -y install software-properties-common \
+    && add-apt-repository -y ppa:apptainer/ppa \
+    && apt -y update \
+    && apt -y install apptainer
+
+# Test image definition (built at container start, not at `docker build` time:
+# `apptainer build` needs to create a user namespace, which BuildKit's RUN
+# sandbox disallows even as root; a normal running container allows it).
+RUN mkdir -p /opt/test-images
+COPY slurm_environment/configs/prefect-test.def /opt/test-images/prefect-test.def
+
 RUN curl -sL https://download.schedmd.com/slurm/slurm-24.11.6.tar.bz2 | tar -xj
 RUN cd slurm-24.11.6 && \
     ./configure --sysconfdir=/etc/slurm && \
