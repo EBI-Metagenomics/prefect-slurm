@@ -11,8 +11,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import shlex
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional
 
 from prefect import __version__ as prefect_version
 from prefect.client.schemas import FlowRun
@@ -65,6 +66,41 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
         title="Working Directory",
         description="Directory where to to run the flow from",
     )
+    image: Optional[str] = Field(
+        default=None,
+        title="Container Image",
+        description=(
+            "Container image to run the flow inside via Singularity/Apptainer "
+            "(e.g. 'docker://org/image:tag', 'library://...', or a path to a "
+            "local .sif file). When set, the flow run command executes inside "
+            "this container instead of a bootstrapped Python environment."
+        ),
+    )
+    container_runtime: Literal["auto", "singularity", "apptainer"] = Field(
+        default="auto",
+        title="Container Runtime",
+        description=(
+            "Which container runtime binary to invoke. 'auto' prefers apptainer, "
+            "falling back to singularity, resolved at job-run time on the "
+            "compute node."
+        ),
+    )
+    bind_paths: list[str] = Field(
+        default_factory=list,
+        title="Bind Paths",
+        description=(
+            "Additional host paths to bind-mount into the container (--bind). "
+            "The job's working directory is always bound automatically."
+        ),
+    )
+    container_options: list[str] = Field(
+        default_factory=list,
+        title="Container Options",
+        description=(
+            "Extra raw arguments appended to 'singularity/apptainer exec', "
+            "e.g. ['--containall']."
+        ),
+    )
 
     def prepare_for_flow_run(
         self,
@@ -91,7 +127,7 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
         script_segments = [
             self._script_shebang_segment(),
             self._script_setup_segment(),
-            self.command,
+            self._script_command_segment(),
             self._script_teardown_segment(),
         ]
 
@@ -117,16 +153,52 @@ class SlurmWorkerConfiguration(BaseJobConfiguration):
         return self.shebang.strip()
 
     def _script_setup_segment(self):
+        if self.image:
+            return self._script_source_segment()
+
         if self.source_files:
             return self._script_source_segment()
 
         return self._script_python_venv_segment()
 
     def _script_teardown_segment(self):
-        if self.source_files:
+        if self.image or self.source_files:
             return None
 
         return 'deactivate\nrm -rf "$VENV_DIR"'
+
+    def _script_command_segment(self) -> str:
+        if self.image:
+            return self._script_container_command_segment()
+
+        return self.command
+
+    def _script_container_command_segment(self) -> str:
+        bind_paths = list(dict.fromkeys([str(self.working_dir), *self.bind_paths]))
+        exec_parts = [
+            "exec",
+            "--bind",
+            shlex.quote(",".join(bind_paths)),
+            "--pwd",
+            shlex.quote(str(self.working_dir)),
+            *self.container_options,
+            shlex.quote(self.image),
+            self.command,
+        ]
+        exec_line = " ".join(exec_parts)
+
+        if self.container_runtime == "auto":
+            runtime_resolution = (
+                'CONTAINER_RUNTIME="$(command -v apptainer || command -v singularity)"\n'
+                'if [ -z "$CONTAINER_RUNTIME" ]; then\n'
+                '  echo "Error: neither apptainer nor singularity found on PATH" >&2\n'
+                "  exit 1\n"
+                "fi"
+            )
+        else:
+            runtime_resolution = f'CONTAINER_RUNTIME="{self.container_runtime}"'
+
+        return f'{runtime_resolution}\n"$CONTAINER_RUNTIME" {exec_line}'
 
     def _script_source_segment(self):
         if not self.source_files:
@@ -172,4 +244,39 @@ class SlurmWorkerTemplateVariables(BaseVariables):
     working_dir: Path = Field(
         title="Working Directory",
         description="Directory where to to run the flow from",
+    )
+    image: Optional[str] = Field(
+        default=None,
+        title="Container Image",
+        description=(
+            "Container image to run the flow inside via Singularity/Apptainer "
+            "(e.g. 'docker://org/image:tag', 'library://...', or a path to a "
+            "local .sif file). When set, the flow run command executes inside "
+            "this container instead of a bootstrapped Python environment."
+        ),
+    )
+    container_runtime: Literal["auto", "singularity", "apptainer"] = Field(
+        default="auto",
+        title="Container Runtime",
+        description=(
+            "Which container runtime binary to invoke. 'auto' prefers apptainer, "
+            "falling back to singularity, resolved at job-run time on the "
+            "compute node."
+        ),
+    )
+    bind_paths: list[str] = Field(
+        default_factory=list,
+        title="Bind Paths",
+        description=(
+            "Additional host paths to bind-mount into the container (--bind). "
+            "The job's working directory is always bound automatically."
+        ),
+    )
+    container_options: list[str] = Field(
+        default_factory=list,
+        title="Container Options",
+        description=(
+            "Extra raw arguments appended to 'singularity/apptainer exec', "
+            "e.g. ['--containall']."
+        ),
     )

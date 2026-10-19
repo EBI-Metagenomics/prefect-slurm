@@ -127,11 +127,12 @@ job_configuration:
   source_files:  # Optional - omit for default Python environment
     - "~/.bashrc"
     - "~/envs/conda/bin/activate"
+  # image: "docker://ghcr.io/my-org/my-flow:latest"  # Optional - see "Container Execution" below
 ```
 
 ### Environment Setup
 
-The worker supports two environment configuration modes:
+The worker supports three environment configuration modes:
 
 **Custom Environment** (when `source_files` are specified):
 ```yaml
@@ -143,7 +144,7 @@ job_configuration:
 ```
 The worker will source these files before executing your flow. Use this for conda environments, module systems, or custom shell configurations.
 
-**Default Python Environment** (when `source_files` is empty or omitted):
+**Default Python Environment** (when `source_files` is empty or omitted and no `image` is set):
 ```yaml
 job_configuration:
   partition: "compute"
@@ -151,6 +152,22 @@ job_configuration:
   memory: 8
 ```
 The worker automatically creates a temporary Python virtual environment with the matching Prefect version installed. The environment is created in `$TMPDIR/.venv_$SLURM_JOB_ID` and cleaned up after job completion.
+
+**Container Execution (Singularity/Apptainer)** (when `image` is set):
+```yaml
+job_configuration:
+  partition: "compute"
+  cpu: 4
+  memory: 8
+  working_dir: "/path/to/working/directory"
+  image: "docker://ghcr.io/my-org/my-flow:latest"  # or "library://...", or a local .sif path
+  container_runtime: "auto"       # "auto" (default), "singularity", or "apptainer"
+  bind_paths:                     # optional, in addition to working_dir which is always bound
+    - "/nfs/scratch"
+  container_options:              # optional, raw extra args passed to "exec"
+    - "--containall"
+```
+When `image` is set, the flow run command executes inside that container via `singularity exec`/`apptainer exec` instead of bootstrapping a venv — bake Prefect and your flow's dependencies into the image ahead of time so every run uses the exact same, already-resolved environment. This requires `singularity` or `apptainer` to be available on the compute node's `PATH` (the same trust assumption already made for `python` today) — if it's only available via a module system, you can still combine `image` with `source_files` to `module load` it first. Image pulling/caching is left to Singularity/Apptainer's own default behavior; there is no explicit pre-pull step.
 
 ## CLI Tools
 
