@@ -1,0 +1,11 @@
+Bootstrap: docker
+From: python:3.12-slim
+
+%post
+    # Pinned to match the prefect_server image version in docker-compose.yaml --
+    # a newer client's event-websocket auth protocol can be incompatible with
+    # an older test server.
+    pip install --no-cache-dir "prefect==3.6.5" importlib-metadata
+
+%runscript
+    exec "$@"

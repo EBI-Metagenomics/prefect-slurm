@@ -419,3 +419,235 @@ class TestSlurmWorkerTemplateVariables:
 
         assert variables.working_dir == working_dir
         assert isinstance(variables.working_dir, Path)
+
+
+@pytest.mark.unit
+class TestContainerExecution:
+    """Test cases for Singularity/Apptainer container execution support."""
+
+    def test_configuration_default_values(self, minimal_slurm_configuration):
+        """Container fields default to off/empty."""
+        assert minimal_slurm_configuration.image is None
+        assert minimal_slurm_configuration.container_runtime == "auto"
+        assert minimal_slurm_configuration.bind_paths == []
+        assert minimal_slurm_configuration.container_options == []
+
+    def test_configuration_custom_values(self, container_slurm_configuration):
+        """Container fields accept custom values."""
+        assert container_slurm_configuration.image == "docker://example/flow:latest"
+        assert container_slurm_configuration.container_runtime == "auto"
+        assert container_slurm_configuration.bind_paths == []
+        assert container_slurm_configuration.container_options == []
+
+    def test_configuration_explicit_runtime_and_binds(self):
+        """Container fields accept an explicit runtime, bind paths and extra options."""
+        config = SlurmWorkerConfiguration(
+            working_dir=Path("/tmp/test"),
+            image="/opt/images/flow.sif",
+            container_runtime="apptainer",
+            bind_paths=["/nfs/scratch", "/data"],
+            container_options=["--containall"],
+        )
+
+        assert config.image == "/opt/images/flow.sif"
+        assert config.container_runtime == "apptainer"
+        assert config.bind_paths == ["/nfs/scratch", "/data"]
+        assert config.container_options == ["--containall"]
+
+    def test_template_variables_default_values(self):
+        """Template variables expose the same container fields, defaulted off."""
+        variables = SlurmWorkerTemplateVariables(working_dir=Path("/tmp/test"))
+
+        assert variables.image is None
+        assert variables.container_runtime == "auto"
+        assert variables.bind_paths == []
+        assert variables.container_options == []
+
+    def test_template_variables_custom_values(self):
+        """Template variables accept custom container values."""
+        variables = SlurmWorkerTemplateVariables(
+            working_dir=Path("/tmp/test"),
+            image="docker://example/flow:latest",
+            container_runtime="singularity",
+            bind_paths=["/nfs/scratch"],
+            container_options=["--nv"],
+        )
+
+        assert variables.image == "docker://example/flow:latest"
+        assert variables.container_runtime == "singularity"
+        assert variables.bind_paths == ["/nfs/scratch"]
+        assert variables.container_options == ["--nv"]
+
+    @pytest.mark.parametrize("invalid_runtime", ["docker", "podman", ""])
+    def test_configuration_invalid_container_runtime_rejected(self, invalid_runtime):
+        """Only 'auto', 'singularity' and 'apptainer' are accepted runtimes."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            SlurmWorkerConfiguration(
+                working_dir=Path("/tmp/test"),
+                container_runtime=invalid_runtime,
+            )
+
+    def test_setup_segment_skips_venv_when_image_set(
+        self, container_slurm_configuration
+    ):
+        """When image is set, no venv bootstrap should run."""
+        container_slurm_configuration.source_files = []
+
+        with (
+            patch.object(
+                container_slurm_configuration, "_script_source_segment"
+            ) as mock_source_segment,
+            patch.object(
+                container_slurm_configuration, "_script_python_venv_segment"
+            ) as mock_python_venv_segment,
+        ):
+            container_slurm_configuration._script_setup_segment()
+
+        mock_python_venv_segment.assert_not_called()
+        mock_source_segment.assert_called()
+
+    def test_setup_segment_with_image_and_source_files(
+        self, container_slurm_configuration
+    ):
+        """source_files may still be used alongside image (e.g. to module-load the runtime)."""
+        container_slurm_configuration.source_files = [
+            Path("/etc/profile.d/apptainer.sh")
+        ]
+
+        setup_segment = container_slurm_configuration._script_setup_segment()
+
+        assert setup_segment == "source /etc/profile.d/apptainer.sh"
+
+    def test_setup_segment_with_image_and_no_source_files_is_none(
+        self, container_slurm_configuration
+    ):
+        """With image set and no source_files, there is nothing to set up."""
+        container_slurm_configuration.source_files = []
+
+        setup_segment = container_slurm_configuration._script_setup_segment()
+
+        assert setup_segment is None
+
+    def test_teardown_segment_none_when_image_set(self, container_slurm_configuration):
+        """No venv teardown should run in container mode."""
+        teardown = container_slurm_configuration._script_teardown_segment()
+        assert teardown is None
+
+    def test_command_segment_without_image_returns_plain_command(
+        self, sample_slurm_configuration
+    ):
+        """Without image, the command segment is the raw flow-run command."""
+        sample_slurm_configuration.command = "prefect flow-run execute"
+
+        assert (
+            sample_slurm_configuration._script_command_segment()
+            == "prefect flow-run execute"
+        )
+
+    def test_command_segment_wraps_in_container_exec_auto_runtime(
+        self, container_slurm_configuration
+    ):
+        """With image set and 'auto' runtime, emit the apptainer/singularity fallback detection."""
+        container_slurm_configuration.command = "prefect flow-run execute"
+
+        segment = container_slurm_configuration._script_command_segment()
+
+        assert (
+            'CONTAINER_RUNTIME="$(command -v apptainer || command -v singularity)"'
+            in segment
+        )
+        assert "neither apptainer nor singularity found on PATH" in segment
+        assert '"$CONTAINER_RUNTIME" exec' in segment
+        assert "docker://example/flow:latest" in segment
+        assert "prefect flow-run execute" in segment
+        assert "--bind /tmp/test" in segment
+        assert "--pwd /tmp/test" in segment
+
+    def test_command_segment_explicit_runtime_skips_auto_detection(self):
+        """An explicit container_runtime should not emit the auto-detection snippet."""
+        config = SlurmWorkerConfiguration(
+            working_dir=Path("/tmp/test"),
+            image="/opt/images/flow.sif",
+            container_runtime="apptainer",
+            command="prefect flow-run execute",
+        )
+
+        segment = config._script_command_segment()
+
+        assert 'CONTAINER_RUNTIME="apptainer"' in segment
+        assert "command -v" not in segment
+        assert '"$CONTAINER_RUNTIME" exec' in segment
+
+    def test_command_segment_bind_paths_deduped_with_working_dir(self):
+        """bind_paths are combined with working_dir, deduplicated, order preserved."""
+        config = SlurmWorkerConfiguration(
+            working_dir=Path("/tmp/test"),
+            image="/opt/images/flow.sif",
+            bind_paths=["/tmp/test", "/nfs/scratch", "/data"],
+            command="prefect flow-run execute",
+        )
+
+        segment = config._script_command_segment()
+
+        assert "--bind /tmp/test,/nfs/scratch,/data" in segment
+
+    def test_command_segment_container_options_appended(self):
+        """Extra container_options are appended to the exec invocation."""
+        config = SlurmWorkerConfiguration(
+            working_dir=Path("/tmp/test"),
+            image="/opt/images/flow.sif",
+            container_options=["--containall", "--nv"],
+            command="prefect flow-run execute",
+        )
+
+        segment = config._script_command_segment()
+
+        assert "--containall --nv" in segment
+
+    def test_prepare_for_flow_run_with_image(self, container_slurm_configuration):
+        """End-to-end: the generated script wraps the command in a container exec call."""
+        flow_run = FlowRun(id=uuid4(), name="test-flow-run-image", flow_id=uuid4())
+        container_slurm_configuration.command = "prefect flow-run execute"
+
+        container_slurm_configuration.prepare_for_flow_run(flow_run)
+
+        script = container_slurm_configuration.script
+        assert "#!/bin/bash" in script
+        assert '"$CONTAINER_RUNTIME" exec' in script
+        assert "docker://example/flow:latest" in script
+        assert "prefect flow-run execute" in script
+        assert "VENV_DIR" not in script
+        assert "deactivate" not in script
+
+    def test_prepare_for_flow_run_with_image_and_source_files(
+        self, container_slurm_configuration
+    ):
+        """source_files are still sourced alongside image (e.g. module load apptainer)."""
+        flow_run = FlowRun(
+            id=uuid4(), name="test-flow-run-image-source", flow_id=uuid4()
+        )
+        container_slurm_configuration.command = "prefect flow-run execute"
+        container_slurm_configuration.source_files = [
+            Path("/etc/profile.d/apptainer.sh")
+        ]
+
+        container_slurm_configuration.prepare_for_flow_run(flow_run)
+
+        script = container_slurm_configuration.script
+        assert "source /etc/profile.d/apptainer.sh" in script
+        assert '"$CONTAINER_RUNTIME" exec' in script
+        assert "VENV_DIR" not in script
+
+    def test_get_slurm_job_spec_includes_container_invocation(
+        self, container_slurm_configuration, sample_flow_run
+    ):
+        """The job spec's script field carries the container invocation end-to-end."""
+        container_slurm_configuration.command = "prefect flow-run execute"
+        container_slurm_configuration.prepare_for_flow_run(sample_flow_run)
+
+        job_spec = container_slurm_configuration.get_slurm_job_spec(sample_flow_run)
+
+        assert '"$CONTAINER_RUNTIME" exec' in job_spec["job"]["script"]
+        assert "docker://example/flow:latest" in job_spec["job"]["script"]

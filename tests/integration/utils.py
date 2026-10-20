@@ -5,6 +5,7 @@ Utility functions for integration tests.
 import asyncio
 import os
 import re
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -202,6 +203,10 @@ async def create_work_pool(
                     "source_files": "{{ source_files }}",
                     "time_limit": "{{ time_limit }}",
                     "working_dir": "{{ working_dir }}",
+                    "image": "{{ image }}",
+                    "container_runtime": "{{ container_runtime }}",
+                    "bind_paths": "{{ bind_paths }}",
+                    "container_options": "{{ container_options }}",
                 },
                 "variables": {
                     "type": "object",
@@ -248,6 +253,36 @@ async def create_work_pool(
                             "title": "Working Directory",
                             "description": "Directory where to run the flow from",
                             "default": "/tmp",
+                        },
+                        "image": {
+                            "type": "string",
+                            "title": "Container Image",
+                            "description": (
+                                "Container image to run the flow inside via "
+                                "Singularity/Apptainer"
+                            ),
+                            "default": None,
+                        },
+                        "container_runtime": {
+                            "type": "string",
+                            "title": "Container Runtime",
+                            "description": "Which container runtime binary to invoke",
+                            "default": "auto",
+                            "enum": ["auto", "singularity", "apptainer"],
+                        },
+                        "bind_paths": {
+                            "type": "array",
+                            "title": "Bind Paths",
+                            "description": "Additional host paths to bind-mount into the container",
+                            "default": [],
+                            "items": {"type": "string"},
+                        },
+                        "container_options": {
+                            "type": "array",
+                            "title": "Container Options",
+                            "description": "Extra raw arguments appended to the container exec invocation",
+                            "default": [],
+                            "items": {"type": "string"},
                         },
                     },
                     "required": ["working_dir"],
@@ -445,6 +480,77 @@ async def wait_for_flow_completion(
     raise TimeoutError(
         f"Flow run {flow_run_id} did not complete within {timeout} seconds"
     )
+
+
+async def wait_for_container_test_image(
+    compose: DockerCompose,
+    image_path: str = "/opt/test-images/prefect-test.sif",
+    timeout: int = 120,
+    poll_interval: int = 2,
+) -> None:
+    """
+    Wait for the local Apptainer test image to finish building on slurm_node.
+
+    The image is built by the slurm_node entrypoint at container start
+    (slurm_environment/entrypoints/entrypoint.sh), after Slurm's daemons are
+    already up and the Prefect worker may already be reporting ready - so
+    container-execution tests must wait for the .sif specifically, not just
+    for services_ready/worker-ready, or they can race a flow run against a
+    not-yet-built image.
+
+    :param compose: The running DockerCompose stack.
+    :param image_path: Path to the .sif file on slurm_node to wait for.
+    :param timeout: Maximum time to wait in seconds.
+    :param poll_interval: Time between checks in seconds.
+
+    :raises TimeoutError: If the image isn't present within the timeout.
+    """
+    start_time = time.time()
+
+    while time.time() - start_time < timeout:
+        try:
+            _, _, exit_code = compose.exec_in_container(
+                command=["test", "-f", image_path],
+                service_name="slurm_node",
+            )
+            if exit_code == 0:
+                return
+        except subprocess.CalledProcessError:
+            pass
+
+        await asyncio.sleep(poll_interval)
+
+    stdout, stderr = compose.get_logs("slurm_node")
+    print(f"--- slurm_node logs (image build never appeared) ---\n{stdout}\n{stderr}")
+
+    raise TimeoutError(
+        f"Container test image {image_path!r} was not built on slurm_node "
+        f"within {timeout} seconds"
+    )
+
+
+def dump_slurm_job_output(
+    compose: DockerCompose, working_dir: str, job_id: Optional[str]
+) -> None:
+    """
+    Print a Slurm job's default `slurm-<job_id>.out` log from slurm_node, for
+    debugging a crashed/failed job in CI where there's no other way to see
+    what the job script printed before dying.
+
+    :param compose: The running DockerCompose stack.
+    :param working_dir: The job's working directory (where Slurm writes its
+        default output file).
+    :param job_id: The Slurm job ID (e.g. a flow run's `infrastructure_pid`).
+    """
+    if not job_id:
+        print("--- slurm job output: no job_id available, skipping ---")
+        return
+
+    stdout, stderr, exit_code = compose.exec_in_container(
+        command=["cat", f"{working_dir}/slurm-{job_id}.out"],
+        service_name="slurm_node",
+    )
+    print(f"--- slurm-{job_id}.out (exit_code={exit_code}) ---\n{stdout}\n{stderr}")
 
 
 def get_project_root() -> Path:

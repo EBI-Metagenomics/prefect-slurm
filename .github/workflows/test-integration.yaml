@@ -14,6 +14,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Allow unprivileged user namespaces (needed by Apptainer)
+        # Ubuntu 24.04 (this runner's image) restricts unprivileged user
+        # namespace creation to processes with CAP_SYS_ADMIN or an AppArmor
+        # profile permitting it. The slurm_node container's `slurm` user has
+        # neither, so Apptainer's unprivileged build/exec fails with
+        # "Could not write info to setgroups: Permission denied" regardless
+        # of the container's own Docker security_opt/privileged settings -
+        # this is a host kernel sysctl, not something a container flag can
+        # override. Safe here since it's a disposable CI VM.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Install uv
         uses: astral-sh/setup-uv@v9.0.0
         with:
@@ -51,5 +62,5 @@ jobs:
           cache-to: type=gha,mode=max,scope=submitter
 
       - name: Run integration tests
-        run: uv run pytest -m integration -v --tb=short
+        run: uv run pytest -m integration -v -s --tb=long
         timeout-minutes: 20

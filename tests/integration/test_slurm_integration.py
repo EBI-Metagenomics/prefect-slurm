@@ -23,6 +23,8 @@ from .utils import (
     wait_for_flow_crashed,
     kill_slurm_job,
     get_slurm_job_id,
+    wait_for_container_test_image,
+    dump_slurm_job_output,
 )
 
 
@@ -619,6 +621,179 @@ async def test_zombie_flow_bad_source_file(
 
     finally:
         # Clean up environment variables
+        for key in slurm_env_vars.keys():
+            os.environ.pop(key, None)
+        os.environ.pop("PREFECT_API_URL", None)
+
+
+CONTAINER_TEST_IMAGE = "/opt/test-images/prefect-test.sif"
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_container_execution_happy_path(
+    services_ready: Dict[str, str],
+    slurm_env_vars: Dict[str, str],
+    docker_compose_setup: DockerCompose,
+):
+    """
+    Test running a flow inside a Singularity/Apptainer container (the `image`
+    job variable) instead of the default venv-bootstrap environment.
+
+    Uses a local .sif built on slurm_node at container start (see
+    slurm_environment/entrypoints/entrypoint.sh) so no registry pulls happen
+    at test-run time.
+    """
+    prefect_url = services_ready["prefect_url"]
+
+    for key, value in slurm_env_vars.items():
+        os.environ[key] = value
+
+    await wait_for_container_test_image(docker_compose_setup)
+
+    try:
+        pool_name = "slurm-pool"
+        await create_work_pool(prefect_url, pool_name)
+
+        async with PrefectClient(api=prefect_url) as client:
+            flow_schema = Flow(name="slurm-hello-world")
+            flow_id = await client.create_flow(flow_schema)
+
+            deployment_id = await client.create_deployment(
+                flow_id=flow_id,
+                name="integration-test-container-deployment",
+                work_pool_name=pool_name,
+                path="/home/slurm/examples",
+                entrypoint="hello_world.py:hello_world",
+                paused=False,
+                job_variables={
+                    "working_dir": "/tmp/workdir-container",
+                    "memory": 1,
+                    "image": CONTAINER_TEST_IMAGE,
+                },
+            )
+
+            flow_run = await client.create_flow_run_from_deployment(
+                deployment_id=deployment_id
+            )
+            print(f"Created flow run: {flow_run.id}")
+
+            try:
+                await wait_for_flow_scheduled(client, str(flow_run.id), timeout=60)
+                completed_flow_run = await wait_for_flow_completed(
+                    client, str(flow_run.id), timeout=300
+                )
+
+                final_state = completed_flow_run.state.name
+                assert final_state == "Completed", (
+                    f"Expected 'Completed', got '{final_state}'"
+                )
+                print("🎉 Container execution happy-path test passed!")
+
+            except (TimeoutError, RuntimeError) as e:
+                current_flow_run = await client.read_flow_run(flow_run.id)
+                print(f"   - Current state: {current_flow_run.state.name}")
+                dump_slurm_job_output(
+                    docker_compose_setup,
+                    "/tmp/workdir-container",
+                    current_flow_run.infrastructure_pid,
+                )
+                raise AssertionError(f"Container execution test failed: {e}")
+
+    finally:
+        for key in slurm_env_vars.keys():
+            os.environ.pop(key, None)
+        os.environ.pop("PREFECT_API_URL", None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_container_execution_with_bind_paths(
+    services_ready: Dict[str, str],
+    slurm_env_vars: Dict[str, str],
+    docker_compose_setup: DockerCompose,
+):
+    """
+    Prove `bind_paths` actually mounts a host path into the container by
+    having the flow read a marker file placed under a directory outside the
+    job's auto-bound working_dir/$HOME.
+    """
+    prefect_url = services_ready["prefect_url"]
+
+    for key, value in slurm_env_vars.items():
+        os.environ[key] = value
+
+    marker_dir = "/mnt/bind-check"
+    marker_path = f"{marker_dir}/marker.txt"
+
+    await wait_for_container_test_image(docker_compose_setup)
+
+    _, stderr, exit_code = docker_compose_setup.exec_in_container(
+        command=["mkdir", "-p", marker_dir],
+        service_name="slurm_node",
+    )
+    assert exit_code == 0, f"Failed to create marker dir on slurm_node: {stderr}"
+
+    _, stderr, exit_code = docker_compose_setup.exec_in_container(
+        command=["sh", "-c", f"echo 'bind-mount-ok' > {marker_path}"],
+        service_name="slurm_node",
+    )
+    assert exit_code == 0, f"Failed to write marker file on slurm_node: {stderr}"
+
+    try:
+        pool_name = "slurm-pool"
+        await create_work_pool(prefect_url, pool_name)
+
+        async with PrefectClient(api=prefect_url) as client:
+            flow_schema = Flow(name="slurm-container-bind-check")
+            flow_id = await client.create_flow(flow_schema)
+
+            deployment_id = await client.create_deployment(
+                flow_id=flow_id,
+                name="integration-test-container-bind-deployment",
+                work_pool_name=pool_name,
+                path="/home/slurm/examples",
+                entrypoint="container_bind_check.py:container_bind_check",
+                parameters={"marker_path": marker_path},
+                paused=False,
+                job_variables={
+                    "working_dir": "/tmp/workdir-container-bind",
+                    "memory": 1,
+                    "image": CONTAINER_TEST_IMAGE,
+                    "bind_paths": [marker_dir],
+                },
+            )
+
+            flow_run = await client.create_flow_run_from_deployment(
+                deployment_id=deployment_id
+            )
+            print(f"Created flow run: {flow_run.id}")
+
+            try:
+                await wait_for_flow_scheduled(client, str(flow_run.id), timeout=60)
+                completed_flow_run = await wait_for_flow_completed(
+                    client, str(flow_run.id), timeout=300
+                )
+
+                final_state = completed_flow_run.state.name
+                assert final_state == "Completed", (
+                    f"Expected 'Completed', got '{final_state}'. If the bind "
+                    f"mount failed, the flow would crash/fail trying to read "
+                    f"{marker_path!r}."
+                )
+                print("🎉 Container bind_paths test passed!")
+
+            except (TimeoutError, RuntimeError) as e:
+                current_flow_run = await client.read_flow_run(flow_run.id)
+                print(f"   - Current state: {current_flow_run.state.name}")
+                dump_slurm_job_output(
+                    docker_compose_setup,
+                    "/tmp/workdir-container-bind",
+                    current_flow_run.infrastructure_pid,
+                )
+                raise AssertionError(f"Container bind_paths test failed: {e}")
+
+    finally:
         for key in slurm_env_vars.keys():
             os.environ.pop(key, None)
         os.environ.pop("PREFECT_API_URL", None)

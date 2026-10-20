@@ -80,6 +80,19 @@ def sample_template_variables():
 
 
 @pytest.fixture
+def container_slurm_configuration():
+    """Create a SlurmWorkerConfiguration using Singularity/Apptainer container execution."""
+    return SlurmWorkerConfiguration(
+        cpu=2,
+        memory=4,
+        partition="compute",
+        time_limit=1,
+        working_dir=Path("/tmp/test"),
+        image="docker://example/flow:latest",
+    )
+
+
+@pytest.fixture
 def custom_shebang_configuration():
     """Create a SlurmWorkerConfiguration with custom shebang."""
     return SlurmWorkerConfiguration(
