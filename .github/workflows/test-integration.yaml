@@ -51,5 +51,5 @@ jobs:
           cache-to: type=gha,mode=max,scope=submitter
 
       - name: Run integration tests
-        run: uv run pytest -m integration -v --tb=short
+        run: uv run pytest -m integration -v -s --tb=long
         timeout-minutes: 20
