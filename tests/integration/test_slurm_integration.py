@@ -668,7 +668,6 @@ async def test_container_execution_happy_path(
                 job_variables={
                     "working_dir": "/tmp/workdir-container",
                     "memory": 1,
-                    "env": {"PATH": "/bin/:/usr/bin/:/sbin/"},
                     "image": CONTAINER_TEST_IMAGE,
                 },
             )
@@ -754,7 +753,6 @@ async def test_container_execution_with_bind_paths(
                 job_variables={
                     "working_dir": "/tmp/workdir-container-bind",
                     "memory": 1,
-                    "env": {"PATH": "/bin/:/usr/bin/:/sbin/"},
                     "image": CONTAINER_TEST_IMAGE,
                     "bind_paths": [marker_dir],
                 },
