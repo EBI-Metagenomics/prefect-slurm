@@ -520,6 +520,9 @@ async def wait_for_container_test_image(
 
         await asyncio.sleep(poll_interval)
 
+    stdout, stderr = compose.get_logs("slurm_node")
+    print(f"--- slurm_node logs (image build never appeared) ---\n{stdout}\n{stderr}")
+
     raise TimeoutError(
         f"Container test image {image_path!r} was not built on slurm_node "
         f"within {timeout} seconds"
