@@ -29,17 +29,14 @@ services:
     command: ["slurmd"]
     hostname: slurm_node
     container_name: slurm_node
-    # Apptainer/Singularity creates a user namespace to run containers
-    # unprivileged; Docker's default seccomp profile blocks that syscall,
-    # and the default AppArmor profile blocks unprivileged user-namespace
-    # creation outright (notably on GitHub Actions' ubuntu-latest runners).
-    security_opt:
-      - seccomp:unconfined
-      - apparmor:unconfined
-    # Apptainer mounts .sif images via FUSE (squashfuse); needs /dev/fuse
-    # exposed into the container.
-    devices:
-      - /dev/fuse
+    # Apptainer/Singularity needs to create a user namespace (and write its
+    # ID mappings) to build/run containers unprivileged. seccomp:unconfined +
+    # apparmor:unconfined alone weren't enough to make that handshake succeed
+    # inside this nested Docker container on GitHub Actions' ubuntu-latest
+    # runners ("Could not write info to setgroups: Permission denied"), so
+    # this test-only container runs fully privileged instead of chasing
+    # individual capabilities/devices.
+    privileged: true
     depends_on:
       slurm_db:
         condition: service_healthy
