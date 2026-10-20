@@ -24,6 +24,7 @@ from .utils import (
     kill_slurm_job,
     get_slurm_job_id,
     wait_for_container_test_image,
+    dump_slurm_job_output,
 )
 
 
@@ -692,6 +693,11 @@ async def test_container_execution_happy_path(
             except (TimeoutError, RuntimeError) as e:
                 current_flow_run = await client.read_flow_run(flow_run.id)
                 print(f"   - Current state: {current_flow_run.state.name}")
+                dump_slurm_job_output(
+                    docker_compose_setup,
+                    "/tmp/workdir-container",
+                    current_flow_run.infrastructure_pid,
+                )
                 raise AssertionError(f"Container execution test failed: {e}")
 
     finally:
@@ -780,6 +786,11 @@ async def test_container_execution_with_bind_paths(
             except (TimeoutError, RuntimeError) as e:
                 current_flow_run = await client.read_flow_run(flow_run.id)
                 print(f"   - Current state: {current_flow_run.state.name}")
+                dump_slurm_job_output(
+                    docker_compose_setup,
+                    "/tmp/workdir-container-bind",
+                    current_flow_run.infrastructure_pid,
+                )
                 raise AssertionError(f"Container bind_paths test failed: {e}")
 
     finally:

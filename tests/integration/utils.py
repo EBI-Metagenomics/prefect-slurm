@@ -529,6 +529,30 @@ async def wait_for_container_test_image(
     )
 
 
+def dump_slurm_job_output(
+    compose: DockerCompose, working_dir: str, job_id: Optional[str]
+) -> None:
+    """
+    Print a Slurm job's default `slurm-<job_id>.out` log from slurm_node, for
+    debugging a crashed/failed job in CI where there's no other way to see
+    what the job script printed before dying.
+
+    :param compose: The running DockerCompose stack.
+    :param working_dir: The job's working directory (where Slurm writes its
+        default output file).
+    :param job_id: The Slurm job ID (e.g. a flow run's `infrastructure_pid`).
+    """
+    if not job_id:
+        print("--- slurm job output: no job_id available, skipping ---")
+        return
+
+    stdout, stderr, exit_code = compose.exec_in_container(
+        command=["cat", f"{working_dir}/slurm-{job_id}.out"],
+        service_name="slurm_node",
+    )
+    print(f"--- slurm-{job_id}.out (exit_code={exit_code}) ---\n{stdout}\n{stderr}")
+
+
 def get_project_root() -> Path:
     """Get the project root directory."""
     return Path(__file__).parent.parent.parent
