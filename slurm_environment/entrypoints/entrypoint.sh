@@ -46,11 +46,16 @@ deactivate
 # Build the local Apptainer test image used by container-execution integration
 # tests (built at container start, not at `docker build` time, since
 # `apptainer build` needs to create a user namespace which BuildKit's RUN
-# sandbox disallows even as root).
+# sandbox disallows even as root). Only the two container-execution tests
+# depend on this image, so a failure here must not take down the rest of
+# the Slurm stack (and thus every other integration test) - log and move on.
 if [ ! -f /opt/test-images/prefect-test.sif ]; then
     echo "ℹ️ Building local Apptainer test image"
-    apptainer build /opt/test-images/prefect-test.sif /opt/test-images/prefect-test.def
-    chmod 644 /opt/test-images/prefect-test.sif
+    if apptainer build /opt/test-images/prefect-test.sif /opt/test-images/prefect-test.def; then
+        chmod 644 /opt/test-images/prefect-test.sif
+    else
+        echo "⚠️ Apptainer test image build failed; container-execution tests will fail, continuing startup"
+    fi
 fi
 
 tail -f /var/log/slurm/slurmdbd.log /var/log/slurm/slurmd.log /var/log/slurm/slurmctld.log /var/log/slurm/slurmrestd.log
